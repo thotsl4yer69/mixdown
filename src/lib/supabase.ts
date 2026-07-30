@@ -10,12 +10,19 @@ const anonKey = extra.supabaseAnonKey as string | undefined;
 const isPlaceholder = (value: string | undefined) =>
   !value || /^REPLACE_/.test(value) || value.includes("YOUR_SUPABASE");
 
-if (isPlaceholder(url) || isPlaceholder(anonKey)) {
-  throw new Error(
-    "Missing Supabase config. Set SUPABASE_URL and SUPABASE_ANON_KEY in .env " +
-      "(or Expo env) before running the app.",
-  );
+function assertRuntimeConfig(
+  value: string | undefined,
+  key: "SUPABASE_URL" | "SUPABASE_ANON_KEY",
+): asserts value is string {
+  if (isPlaceholder(value)) {
+    throw new Error(
+      `Missing Supabase config. Set ${key} in .env (or Expo env) before running the app.`,
+    );
+  }
 }
+
+assertRuntimeConfig(url, "SUPABASE_URL");
+assertRuntimeConfig(anonKey, "SUPABASE_ANON_KEY");
 
 /**
  * Single-user app, no auth flow — the anon key plus RLS policies scoped to a
