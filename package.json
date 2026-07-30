@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=20 <21"
+    "node": ">=20"
   },
   "main": "expo-router/entry",
   "scripts": {
@@ -27,6 +27,7 @@
     "expo-linking": "~7.0.0",
     "@expo-google-fonts/inter": "^0.2.3",
     "@expo-google-fonts/space-mono": "^0.2.3",
+    "expo-system-ui": "~4.0.9",
     "react": "18.3.1",
     "react-native": "0.76.5",
     "react-native-gesture-handler": "~2.20.2",

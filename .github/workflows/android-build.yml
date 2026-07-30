@@ -44,7 +44,7 @@ jobs:
         run: npm run typecheck
 
       - name: Prebuild Android project
-        run: npx expo prebuild --platform android --non-interactive
+        run: npx expo prebuild --platform android
 
       - name: Assemble release APK
         working-directory: ${{ github.workspace }}/android
