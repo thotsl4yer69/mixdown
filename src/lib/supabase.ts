@@ -7,11 +7,13 @@ const extra = Constants.expoConfig?.extra ?? {};
 
 const url = extra.supabaseUrl as string | undefined;
 const anonKey = extra.supabaseAnonKey as string | undefined;
+const isPlaceholder = (value: string | undefined) =>
+  !value || /^REPLACE_/.test(value) || value.includes("YOUR_SUPABASE");
 
-if (!url || !anonKey) {
+if (isPlaceholder(url) || isPlaceholder(anonKey)) {
   throw new Error(
-    "Missing supabaseUrl / supabaseAnonKey in app.json `expo.extra`. " +
-      "Set them from your Supabase project settings before running the app.",
+    "Missing Supabase config. Set SUPABASE_URL and SUPABASE_ANON_KEY in .env " +
+      "(or Expo env) before running the app.",
   );
 }
 

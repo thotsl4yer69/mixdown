@@ -5,7 +5,11 @@ threads in one paged swipe, ranked by a bandit you can steer with real
 sliders. Android only, sideloaded APK only (see "Distribution" below).
 
 Build instructions: **[BUILD.md](./BUILD.md)**. This file is a map of the
-repo, not a tutorial.
+repo, not a tutorial. Expo reads runtime config from `/home/runner/work/mixdown/mixdown/.env`
+through `app.config.js`, and the same variables can be injected from GitHub
+Actions secrets for CI builds.
+
+Use Node 20 (`/home/runner/work/mixdown/mixdown/.nvmrc`) for local and CI builds.
 
 ## Layout
 

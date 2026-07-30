@@ -50,17 +50,9 @@ if ! grep -q '^INGEST_SECRET=' .env 2>/dev/null; then
 fi
 
 command -v supabase >/dev/null || { echo "Install the Supabase CLI first: npm install -g supabase"; exit 1; }
-command -v node >/dev/null || { echo "Node.js is required to patch app.json"; exit 1; }
+command -v node >/dev/null || { echo "Node.js is required"; exit 1; }
 
-echo "==> Patching app.json with real Supabase values"
-node -e '
-  const fs = require("fs");
-  const path = "app.json";
-  const cfg = JSON.parse(fs.readFileSync(path, "utf8"));
-  cfg.expo.extra.supabaseUrl = process.env.SUPABASE_URL;
-  cfg.expo.extra.supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  fs.writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
-'
+echo "==> Using SUPABASE_URL / SUPABASE_ANON_KEY from .env via app.config.js"
 
 echo "==> Linking Supabase project ${SUPABASE_PROJECT_REF}"
 export SUPABASE_ACCESS_TOKEN

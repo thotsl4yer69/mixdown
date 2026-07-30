@@ -158,14 +158,15 @@ You should get back a JSON report with one line per source polled. Check
 
 ## 4. Configure the app
 
-Edit `app.json` → `expo.extra`:
+Copy `.env.example` to `.env` and fill in at least:
 
-```json
-"extra": {
-  "supabaseUrl": "https://<your-project-ref>.supabase.co",
-  "supabaseAnonKey": "<your anon public key>"
-}
+```bash
+SUPABASE_URL=https://<your-project-ref>.supabase.co
+SUPABASE_ANON_KEY=<your anon public key>
 ```
+
+`app.config.js` reads those values automatically for local builds, and GitHub
+Actions can provide the same values with repository secrets.
 
 Reconcile dependency versions against your installed Expo SDK (pinned
 versions in `package.json` may have moved on since this was written):
@@ -216,6 +217,22 @@ cd android
 ```
 
 Output lands at `android/app/build/outputs/apk/release/app-release.apk`.
+
+## 7. Build in GitHub Actions
+
+This repo includes `/home/runner/work/mixdown/mixdown/.github/workflows/android-build.yml`
+to typecheck, prebuild Android, assemble a release APK, and upload it as a
+workflow artifact.
+
+To make the artifact immediately runnable against your backend, add these
+repository secrets before running the workflow:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `EAS_PROJECT_ID` (optional, only for EAS-linked builds later)
+
+If those secrets are omitted, the workflow still builds an APK, but the app
+will stop at startup until valid Supabase values are supplied.
 
 For a real release you'll want to sign it with your own keystore rather than
 the debug key `assembleRelease` falls back to:
