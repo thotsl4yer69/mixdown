@@ -11,11 +11,23 @@ import type { Block } from "../../lib/types";
  * budget the moment one mounts mid-swipe.
  */
 export function BlockRenderer({ blocks, dim }: { blocks: Block[]; dim?: boolean }) {
+  const textColor = dim ? color.textDim : color.text;
+  let orderedIndex = 0;
   return (
     <View>
-      {blocks.map((b, i) => (
-        <BlockView key={i} block={b} dim={dim} />
-      ))}
+      {blocks.map((b, i) => {
+        if (b.t !== "li") orderedIndex = 0;
+        if (b.t === "li") {
+          if (b.ordered) orderedIndex += 1;
+          return (
+            <View key={i} style={styles.liRow}>
+              <Text style={styles.liBullet}>{b.ordered ? `${orderedIndex}.` : "\u2022"}</Text>
+              <Text style={[styles.p, { color: textColor, flex: 1 }]}>{b.text}</Text>
+            </View>
+          );
+        }
+        return <BlockView key={i} block={b} dim={dim} />;
+      })}
     </View>
   );
 }
