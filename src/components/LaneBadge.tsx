@@ -2,12 +2,12 @@ import { StyleSheet, Text, View } from "react-native";
 import { lane, radius, scale, space, type } from "../theme/tokens";
 import type { Lane } from "../lib/types";
 
-export function LaneBadge({ bucketLabel, feedLane }: { bucketLabel: string; feedLane: Lane }) {
+export function LaneBadge({ bucketLabel: bucketKey, feedLane }: { bucketLabel: string; feedLane: Lane }) {
   const accent = lane[feedLane].accent;
   return (
     <View style={[styles.wrap, { borderColor: accent }]}>
       <View style={[styles.dot, { backgroundColor: accent }]} />
-      <Text style={[styles.label, { color: accent }]}>{bucketLabel}</Text>
+      <Text style={[styles.label, { color: accent }]}>{bucketKey}</Text>
     </View>
   );
 }
