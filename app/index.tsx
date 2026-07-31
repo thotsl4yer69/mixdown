@@ -307,8 +307,8 @@ export default function FeedScreen() {
         onScrollEndDrag={(e) => handleSettleFromOffset(e.nativeEvent.contentOffset.y)}
       />
 
-      <Animated.View style={[StyleSheet.absoluteFill, { height }, overlayStyle]} pointerEvents="none">
-        {showMedia3Overlay && <Media3FeedView style={StyleSheet.absoluteFill} />}
+      <Animated.View style={[StyleSheet.absoluteFill, { height }, overlayStyle]} pointerEvents="box-none">
+        {showMedia3Overlay && <Media3FeedView style={StyleSheet.absoluteFill} pointerEvents="none" />}
         {showYouTubeOverlay && settledItem?.media_url && (
           <YouTubeEmbedOverlay videoId={settledItem.media_url} autoplayMuted={prefs.autoplay_muted} />
         )}
