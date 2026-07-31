@@ -1,0 +1,35 @@
+apply plugin: 'com.android.library'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useDefaultAndroidSdkVersions()
+
+buildscript {
+  // Simple helper that allows the root project to override versions declared by this library.
+  ext.safeExtGet = { prop, fallback ->
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+  }
+}
+
+android {
+  namespace "expo.modules.media3feed"
+
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  def MEDIA3_VERSION = "1.4.1"
+
+  implementation 'com.facebook.react:react-android'
+
+  api "androidx.media3:media3-exoplayer:${MEDIA3_VERSION}"
+  api "androidx.media3:media3-exoplayer-hls:${MEDIA3_VERSION}"
+  api "androidx.media3:media3-datasource:${MEDIA3_VERSION}"
+  api "androidx.media3:media3-database:${MEDIA3_VERSION}"
+  api "androidx.media3:media3-common:${MEDIA3_VERSION}"
+}
