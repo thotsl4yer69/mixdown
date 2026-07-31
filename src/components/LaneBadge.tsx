@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { lane, radius, scale, space, type } from "../theme/tokens";
 import type { Lane } from "../lib/types";
 
-export function LaneBadge({ bucketLabel: bucketKey, feedLane }: { bucketLabel: string; feedLane: Lane }) {
+export function LaneBadge({ bucketKey, feedLane }: { bucketKey: string; feedLane: Lane }) {
   const accent = lane[feedLane].accent;
   return (
     <View style={[styles.wrap, { borderColor: accent }]}>

@@ -32,7 +32,7 @@ export function VideoCard({ item, isYouTube }: { item: FeedItem; isYouTube: bool
       <View style={styles.scrim} />
 
       <View style={styles.top}>
-        <LaneBadge bucketLabel={item.bucket ?? ""} feedLane={item.lane} />
+        <LaneBadge bucketKey={item.bucket ?? ""} feedLane={item.lane} />
         {isYouTube && <Text style={styles.embedTag}>YOUTUBE</Text>}
       </View>
 

@@ -8,7 +8,7 @@ export function SocialCard({ item, onOpen }: { item: FeedItem; onOpen: () => voi
   return (
     <Pressable style={styles.root} onPress={onOpen}>
       <View style={styles.header}>
-        <LaneBadge bucketLabel={item.bucket ?? ""} feedLane={item.lane} />
+        <LaneBadge bucketKey={item.bucket ?? ""} feedLane={item.lane} />
         {item.author && <Text style={styles.author}>{item.author}</Text>}
       </View>
 

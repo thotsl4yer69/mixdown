@@ -102,7 +102,7 @@ export default function ReaderScreen() {
         )}
 
         <View style={styles.header}>
-          <LaneBadge bucketLabel={item.bucket ?? ""} feedLane={item.lane} />
+          <LaneBadge bucketKey={item.bucket ?? ""} feedLane={item.lane} />
           <Text style={styles.title}>{item.title}</Text>
           <View style={styles.metaRow}>
             {item.author && <Text style={styles.meta}>{item.author}</Text>}

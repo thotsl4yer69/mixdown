@@ -18,7 +18,7 @@ export function ArticleCard({ item, onOpen }: { item: FeedItem; onOpen: () => vo
       )}
 
       <View style={styles.body}>
-        <LaneBadge bucketLabel={item.bucket ?? ""} feedLane={item.lane} />
+        <LaneBadge bucketKey={item.bucket ?? ""} feedLane={item.lane} />
         <Text style={styles.title} numberOfLines={4}>
           {item.title}
         </Text>
