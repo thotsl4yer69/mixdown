@@ -1,15 +1,20 @@
-name: Android build
+name: Android APK build
 
 on:
   pull_request:
+  release:
+    types:
+      - published
   push:
     branches:
       - main
       - master
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-android:
@@ -56,3 +61,10 @@ jobs:
           name: mixdown-release-apk
           path: ${{ github.workspace }}/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Attach APK to GitHub release
+        if: ${{ github.event_name == 'release' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ github.workspace }}/android/app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
