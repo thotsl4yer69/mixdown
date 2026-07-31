@@ -4,6 +4,7 @@ import { rssAdapter } from "./adapters/rss.ts";
 import { peertubeAdapter } from "./adapters/peertube.ts";
 import { redditAdapter } from "./adapters/reddit.ts";
 import { youtubeAdapter, youtubeResolutions } from "./adapters/youtube.ts";
+import { newsApiAdapter } from "./adapters/newsapi.ts";
 import { embedText } from "./lib/extract.ts";
 
 const ADAPTERS: Record<string, Adapter> = {
@@ -11,6 +12,7 @@ const ADAPTERS: Record<string, Adapter> = {
   peertube: peertubeAdapter,
   reddit: redditAdapter,
   youtube: youtubeAdapter,
+  newsapi: newsApiAdapter,
   direct: {
     // A 'direct' source is a single fixed media URL. Polling it re-asserts the
     // row rather than discovering anything, which is what makes it useful as a

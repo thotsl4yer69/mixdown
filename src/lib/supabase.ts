@@ -12,7 +12,7 @@ const isPlaceholder = (value: string | undefined) =>
 
 function assertRuntimeConfig(
   value: string | undefined,
-  key: "SUPABASE_URL" | "SUPABASE_ANON_KEY",
+  key: "SUPABASE_URL" | "SUPABASE_ANON_KEY or SUPABASE_PUBLISHABLE_KEY",
 ): asserts value is string {
   if (isPlaceholder(value)) {
     throw new Error(
@@ -22,7 +22,7 @@ function assertRuntimeConfig(
 }
 
 assertRuntimeConfig(url, "SUPABASE_URL");
-assertRuntimeConfig(anonKey, "SUPABASE_ANON_KEY");
+assertRuntimeConfig(anonKey, "SUPABASE_ANON_KEY or SUPABASE_PUBLISHABLE_KEY");
 
 /**
  * Single-user app, no auth flow — the anon key plus RLS policies scoped to a

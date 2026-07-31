@@ -64,7 +64,9 @@ module.exports = () => {
   const supabaseAnonKey = readConfigValue(
     envFile,
     "SUPABASE_ANON_KEY",
+    "SUPABASE_PUBLISHABLE_KEY",
     "EXPO_PUBLIC_SUPABASE_ANON_KEY",
+    "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
   );
   const easProjectId = readConfigValue(envFile, "EAS_PROJECT_ID");
 

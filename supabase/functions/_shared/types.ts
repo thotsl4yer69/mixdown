@@ -1,4 +1,4 @@
-export type SourceKind = "rss" | "peertube" | "reddit" | "youtube" | "direct";
+export type SourceKind = "rss" | "peertube" | "reddit" | "youtube" | "newsapi" | "direct";
 export type ItemKind = "video" | "article" | "social";
 export type MediaKind = "mp4" | "hls" | "youtube_embed";
 

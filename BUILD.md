@@ -44,8 +44,8 @@ npm install
 
 ## 1. Supabase project
 
-1. Create a project at supabase.com — note the **Project URL** and
-   **anon public key** (Project Settings → API).
+1. Create a project at supabase.com — note the **Project URL** and either the
+   **anon public key** or newer **publishable key** (Project Settings → API).
 2. Install the Supabase CLI and link it:
 
 ```bash
@@ -102,12 +102,16 @@ supabase secrets set \
   REDDIT_CLIENT_ID=xxx \
   REDDIT_CLIENT_SECRET=xxx \
   YOUTUBE_API_KEY=xxx \
+  NEWSAPI_KEY=xxx \
   INGEST_SECRET=$(openssl rand -hex 24)
 ```
 
 `INGEST_SECRET` is a shared secret the cron job sends as an `x-ingest-secret`
 header — it stops random internet traffic from triggering your ingestion
 function and burning your API quotas.
+
+`NEWSAPI_KEY` is optional. Only set it if you want to add `newsapi` story
+sources.
 
 ---
 
@@ -163,6 +167,8 @@ Copy `.env.example` to `.env` and fill in at least:
 ```bash
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_ANON_KEY=<your anon public key>
+# or
+SUPABASE_PUBLISHABLE_KEY=<your newer Supabase publishable key>
 ```
 
 `app.config.js` reads those values automatically for local builds, and GitHub
@@ -229,7 +235,23 @@ repository secrets before running the workflow:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
+- `SUPABASE_PUBLISHABLE_KEY` (optional alternative to `SUPABASE_ANON_KEY`)
 - `EAS_PROJECT_ID` (optional, only for EAS-linked builds later)
+
+### Adding NewsAPI story sources
+
+If you set `NEWSAPI_KEY` as an Edge Function secret, you can add `newsapi`
+sources from Settings with config JSON like:
+
+```json
+{"endpoint":"everything","q":"technology","language":"en","sortBy":"publishedAt"}
+```
+
+or:
+
+```json
+{"endpoint":"top-headlines","country":"us","category":"technology"}
+```
 
 If those secrets are omitted, the workflow still builds an APK, but the app
 will stop at startup until valid Supabase values are supplied.

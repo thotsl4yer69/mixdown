@@ -212,7 +212,15 @@ function Row({ children }: { children: React.ReactNode }) {
   return <View style={styles.row}>{children}</View>;
 }
 
-const KINDS = ["rss", "peertube", "reddit", "youtube", "direct"] as const;
+const KINDS = ["rss", "peertube", "reddit", "youtube", "newsapi", "direct"] as const;
+const DEFAULT_CONFIG_BY_KIND: Record<(typeof KINDS)[number], string> = {
+  rss: '{"url":"https://"}',
+  peertube: '{"instance":"tilvids.com","filter":"local"}',
+  reddit: '{"subreddit":"programming","listing":"hot"}',
+  youtube: '{"handle":"@3blue1brown"}',
+  newsapi: '{"endpoint":"everything","q":"technology","language":"en","sortBy":"publishedAt"}',
+  direct: '{"url":"https://","media_kind":"mp4"}',
+};
 
 function AddSourceForm({
   buckets,
@@ -225,7 +233,7 @@ function AddSourceForm({
 }) {
   const [kind, setKind] = useState<(typeof KINDS)[number]>("rss");
   const [label, setLabel] = useState("");
-  const [configText, setConfigText] = useState('{"url":"https://"}');
+  const [configText, setConfigText] = useState(DEFAULT_CONFIG_BY_KIND.rss);
   const [bucket, setBucket] = useState(buckets[0]?.key ?? "");
   const [isNsfw, setIsNsfw] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,7 +277,12 @@ function AddSourceForm({
           <Pressable
             key={k}
             style={[styles.kindChip, kind === k && styles.kindChipActive]}
-            onPress={() => setKind(k)}
+            onPress={() => {
+              setKind(k);
+              setConfigText((current) =>
+                current === DEFAULT_CONFIG_BY_KIND[kind] ? DEFAULT_CONFIG_BY_KIND[k] : current,
+              );
+            }}
           >
             <Text style={[styles.kindChipText, kind === k && styles.kindChipTextActive]}>
               {k.toUpperCase()}

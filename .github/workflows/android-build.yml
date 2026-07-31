@@ -19,6 +19,7 @@ jobs:
       EXPO_NO_TELEMETRY: "1"
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
       EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
     steps:
       - name: Check out repository

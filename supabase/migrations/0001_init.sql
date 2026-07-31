@@ -27,7 +27,7 @@ comment on column topic_buckets.lane is
 -- ---------------------------------------------------------------------------
 create table sources (
   id                   uuid primary key default gen_random_uuid(),
-  kind                 text not null check (kind in ('rss','peertube','reddit','youtube','direct')),
+  kind                 text not null check (kind in ('rss','peertube','reddit','youtube','newsapi','direct')),
   label                text not null,
   config               jsonb not null default '{}'::jsonb,
   default_bucket       text references topic_buckets(key) on delete set null,
@@ -46,6 +46,7 @@ comment on column sources.config is $$Shape depends on kind:
   peertube { "instance": "diode.zone", "filter": "local"|"all", "category"?: int }
   reddit   { "subreddit": "programming", "listing": "hot"|"top"|"new", "time"?: "day"|"week" }
   youtube  { "handle": "@3blue1brown" }   -- channel id is resolved and cached into config.channel_id
+  newsapi  { "endpoint": "everything"|"top-headlines", "q"?: "technology", "sources"?: "the-verge" }
   direct   { "url": "https://.../video.mp4", "media_kind": "mp4"|"hls", "title"?: "..." }$$;
 
 create index sources_due_idx on sources (enabled, last_polled_at nulls first);
