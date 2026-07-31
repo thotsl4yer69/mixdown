@@ -25,9 +25,9 @@ assertRuntimeConfig(url, "SUPABASE_URL");
 assertRuntimeConfig(anonKey, "SUPABASE_ANON_KEY or SUPABASE_PUBLISHABLE_KEY");
 
 /**
- * Single-user app, no auth flow — the anon key plus RLS policies scoped to a
- * fixed owner (see supabase/migrations) is the whole security model. If this
- * ever becomes multi-user, add real auth before anything else.
+ * Single-user app, no auth flow — the client uses the Supabase anon/publishable key.
+ * RLS is enabled, but policies are currently permissive for the `anon` role (see supabase/migrations/0003_rls.sql).
+ * If this ever becomes multi-user, add real auth and tighten policies before sharing access.
  */
 export const supabase = createClient(url, anonKey, {
   auth: {
