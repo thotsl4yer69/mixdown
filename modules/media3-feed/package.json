@@ -1,0 +1,16 @@
+{
+  "name": "media3-feed",
+  "version": "1.0.0",
+  "description": "Fixed-pool Media3 preload controller exposed as an Expo Module.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "expo": {
+    "name": "media3-feed"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "expo-modules-core": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}
