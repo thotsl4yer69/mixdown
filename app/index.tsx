@@ -116,14 +116,25 @@ export default function FeedScreen() {
   // ---- telemetry: close out the previous item's dwell before settling -
   const commitDwell = useCallback(async (item: FeedItem | undefined, completion?: number) => {
     if (!item) return;
-    const dwellMs = Date.now() - impressionStart.current;
-    await logEvent(item.id, "dwell", { bucket: item.bucket, dwellMs, completion });
 
-    const event = completion != null && completion > 0.9 ? "complete" : "skip";
-    await logEvent(item.id, event, { bucket: item.bucket, dwellMs, completion });
+    let c = completion;
+    if (c == null && item.kind === "video" && item.media_kind !== "youtube_embed") {
+      try {
+        const p = await media3Feed.activeProgress();
+        if (p.durationMs > 0) c = Math.min(Math.max(p.positionMs / p.durationMs, 0), 1);
+      } catch {
+        // ignore
+      }
+    }
+
+    const dwellMs = Date.now() - impressionStart.current;
+    await logEvent(item.id, "dwell", { bucket: item.bucket, dwellMs, completion: c });
+
+    const event = c != null && c > 0.9 ? "complete" : "skip";
+    await logEvent(item.id, event, { bucket: item.bucket, dwellMs, completion: c });
 
     if (item.bucket) {
-      const reward = rewardFor(event, completion);
+      const reward = rewardFor(event, c);
       if (reward != null) updateBandit(item.bucket, reward).catch(() => {});
     }
   }, []);
