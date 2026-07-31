@@ -230,6 +230,9 @@ This repo includes `/home/runner/work/mixdown/mixdown/.github/workflows/android-
 to typecheck, prebuild Android, assemble a release APK, and upload it as a
 workflow artifact.
 
+It now also runs on published GitHub releases (and `v*` tags) and attaches
+the APK directly to the release page as a downloadable asset.
+
 To make the artifact immediately runnable against your backend, add these
 repository secrets before running the workflow:
 
@@ -255,6 +258,13 @@ or:
 
 If those secrets are omitted, the workflow still builds an APK, but the app
 will stop at startup until valid Supabase values are supplied.
+
+### Triggering and downloading
+
+- Push a tag like `v1.0.0` to run the APK build and upload a workflow artifact.
+- Publish a GitHub Release to run the same build and attach the APK asset to the repository’s Releases page.
+- APK(s) are uploaded from Gradle output at:
+  `android/app/build/outputs/apk/release/*.apk`
 
 For a real release you'll want to sign it with your own keystore rather than
 the debug key `assembleRelease` falls back to:
