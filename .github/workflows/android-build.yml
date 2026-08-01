@@ -22,27 +22,6 @@ jobs:
     env:
       CI: "1"
       EXPO_NO_TELEMETRY: "1"
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-      SUPABASE_JWKS_URL: ${{ secrets.SUPABASE_JWKS_URL }}
-      APITUBE_KEY: ${{ secrets.APITUBE_KEY }}
-      NEWDATA_IO_KEY: ${{ secrets.NEWDATA_IO_KEY }}
-      SEARCHCANS_API: ${{ secrets.SEARCHCANS_API }}
-      SOCIAVAULT_KEY: ${{ secrets.SOCIAVAULT_KEY }}
-      APIFY_KEY: ${{ secrets.APIFY_KEY }}
-      OPUS_API_KEY: ${{ secrets.OPUS_API_KEY }}
-      ZERNIO_KEY: ${{ secrets.ZERNIO_KEY }}
-      TIKTOK_CLIENT_ID: ${{ secrets.TIKTOK_CLIENT_ID }}
-      TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-      TIKHUB_IO_KEY: ${{ secrets.TIKHUB_IO_KEY }}
-      NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-      SUPABASE_PROJECT_REF: hknyyyudeeemhyugzmja
-      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
-      APK_DELIVERY_WEBHOOK_URL: ${{ secrets.APK_DELIVERY_WEBHOOK_URL }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -59,45 +38,29 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Generate .env file
+        run: |
+          echo "SUPABASE_URL=https://hknyyyudeeemhyugzmja.supabase.co" >> .env
+          echo "SUPABASE_PUBLISHABLE_KEY=sb_publishable_J8zuJREC7iLPCejJKhoxfA_OvlmpfFr" >> .env
+          echo "SUPABASE_SECRET_KEY=sb_secret_K2FNAuWPRoAUNJImTncTOw_WrY54g0q" >> .env
+          echo "SUPABASE_JWKS_URL=https://hknyyyudeeemhyugzmja.supabase.co/auth/v1/.well-known/jwks.json" >> .env
+          echo "APITUBE_KEY=api_live_X8pd3DB0fH8sw7wBtvFOF4OODhy3Dpgsbk05rS8vL" >> .env
+          echo "NEWDATA_IO_KEY=pub_d56d5e556d9941f08de238ec45c28104" >> .env
+          echo "SEARCHCANS_API=vcans_1785455489_81276582-bc05-40f2-af44-cf7a800db6da" >> .env
+          echo "SOCIAVAULT_KEY=sk_live_9ba9016033b5f5b62a5d6f457070377d" >> .env
+          echo "APIFY_KEY=apify_api_1n3PfN7kdmb08Gqd1BIL1QqQrgnPpI3CaqCk" >> .env
+          echo "OPUS_API_KEY=sk-AEukWpB8oTIez75S94tbzzI72gjfeIPPWNb0wVqA" >> .env
+          echo "ZERNIO_KEY=sk_ad55fc4aceae869916f7f3e7049fc08de0ea96d8716a79910f88de3d12db1fa8" >> .env
+          echo "TIKTOK_CLIENT_ID=awmsh4vast8ciuv9" >> .env
+          echo "TIKTOK_CLIENT_SECRET=ZXzlP5IMB0j2FKuWQbqRolOimt80PFe3" >> .env
+          echo "TIKHUB_IO_KEY=psgzWMAu4nqLyUHCPKmv7EiBJAGtatx46DOItXWZdPCxmV+QOH+9TxCCNw==" >> .env
+          echo "NEWSAPI_KEY=37d9e07172ef4119812c1e8dbcddd1ad" >> .env
+
       - name: Install dependencies
         run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
-
-      - name: Generate environment file
-        run: |
-          cat > .env <<EOF
-          SUPABASE_URL=${SUPABASE_URL}
-          SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-          SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY}
-          SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY}
-          SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
-          APITUBE_KEY=${APITUBE_KEY}
-          NEWDATA_IO_KEY=${NEWDATA_IO_KEY}
-          SEARCHCANS_API=${SEARCHCANS_API}
-          SOCIAVAULT_KEY=${SOCIAVAULT_KEY}
-          APIFY_KEY=${APIFY_KEY}
-          OPUS_API_KEY=${OPUS_API_KEY}
-          ZERNIO_KEY=${ZERNIO_KEY}
-          TIKTOK_CLIENT_ID=${TIKTOK_CLIENT_ID}
-          TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET}
-          TIKHUB_IO_KEY=${TIKHUB_IO_KEY}
-          NEWSAPI_KEY=${NEWSAPI_KEY}
-          EOF
-
-      - name: Set up Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Push Supabase migrations
-        if: github.event_name != 'pull_request'
-        run: |
-          supabase link \
-            --project-ref "$SUPABASE_PROJECT_REF" \
-            --password "$SUPABASE_DB_PASSWORD"
-          supabase db push --linked --yes
 
       - name: Prebuild Android project
         run: npx expo prebuild --platform android
@@ -112,19 +75,3 @@ jobs:
           name: mixdown-release-apk
           path: ${{ github.workspace }}/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-
-      - name: Deliver APK to private webhook
-        if: env.APK_DELIVERY_WEBHOOK_URL != ''
-        run: |
-          apk="$(find "$GITHUB_WORKSPACE/android/app/build/outputs/apk/release" -name '*.apk' -print -quit)"
-          test -n "$apk"
-          curl --fail --silent --show-error --retry 3 \
-            -F "file=@${apk}" \
-            "$APK_DELIVERY_WEBHOOK_URL"
-
-      - name: Attach APK to GitHub release
-        if: ${{ github.event_name == 'release' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ github.workspace }}/android/app/build/outputs/apk/release/*.apk
-          fail_on_unmatched_files: true
