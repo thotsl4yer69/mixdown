@@ -22,10 +22,6 @@ jobs:
     env:
       CI: "1"
       EXPO_NO_TELEMETRY: "1"
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -41,6 +37,35 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      - name: Generate .env file
+        run: |
+          echo "SUPABASE_URL=https://hknyyyudeeemhyugzmja.supabase.co" >> .env
+          echo "SUPABASE_PUBLISHABLE_KEY=sb_publishable_J8zuJREC7iLPCejJKhoxfA_OvlmpfFr" >> .env
+          echo "SUPABASE_SECRET_KEY=sb_secret_K2FNAuWPRoAUNJImTncTOw_WrY54g0q" >> .env
+          echo "SUPABASE_JWKS_URL=https://hknyyyudeeemhyugzmja.supabase.co/auth/v1/.well-known/jwks.json" >> .env
+          echo "APITUBE_KEY=api_live_X8pd3DB0fH8sw7wBtvFOF4OODhy3Dpgsbk05rS8vL" >> .env
+          echo "NEWDATA_IO_KEY=pub_d56d5e556d9941f08de238ec45c28104" >> .env
+          echo "SEARCHCANS_API=vcans_1785455489_81276582-bc05-40f2-af44-cf7a800db6da" >> .env
+          echo "SOCIAVAULT_KEY=sk_live_9ba9016033b5f5b62a5d6f457070377d" >> .env
+          echo "APIFY_KEY=apify_api_1n3PfN7kdmb08Gqd1BIL1QqQrgnPpI3CaqCk" >> .env
+          echo "OPUS_API_KEY=sk-AEukWpB8oTIez75S94tbzzI72gjfeIPPWNb0wVqA" >> .env
+          echo "ZERNIO_KEY=sk_ad55fc4aceae869916f7f3e7049fc08de0ea96d8716a79910f88de3d12db1fa8" >> .env
+          echo "TIKTOK_CLIENT_ID=awmsh4vast8ciuv9" >> .env
+          echo "TIKTOK_CLIENT_SECRET=ZXzlP5IMB0j2FKuWQbqRolOimt80PFe3" >> .env
+          echo "TIKHUB_IO_KEY=psgzWMAu4nqLyUHCPKmv7EiBJAGtatx46DOItXWZdPCxmV+QOH+9TxCCNw==" >> .env
+          echo "NEWSAPI_KEY=37d9e07172ef4119812c1e8dbcddd1ad" >> .env
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Push DB Migrations
+        # Uses the project ID extracted from your SUPABASE_URL
+        run: supabase db push --project-ref hknyyyudeeemhyugzmja
+        env:
+          SUPABASE_ACCESS_TOKEN: sb_secret_K2FNAuWPRoAUNJImTncTOw_WrY54g0q
 
       - name: Install dependencies
         run: npm ci
