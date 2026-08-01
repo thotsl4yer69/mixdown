@@ -239,6 +239,21 @@ repository secrets before running the workflow:
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_PUBLISHABLE_KEY` (optional alternative to `SUPABASE_ANON_KEY`)
+- `SUPABASE_SECRET_KEY`
+- `SUPABASE_JWKS_URL`
+- `APITUBE_KEY`
+- `NEWDATA_IO_KEY`
+- `SEARCHCANS_API`
+- `SOCIAVAULT_KEY`
+- `APIFY_KEY`
+- `OPUS_API_KEY`
+- `ZERNIO_KEY`
+- `TIKTOK_CLIENT_ID`
+- `TIKTOK_CLIENT_SECRET`
+- `TIKHUB_IO_KEY`
+- `NEWSAPI_KEY`
+- `SUPABASE_ACCESS_TOKEN` (Supabase CLI access token for linking the project)
+- `SUPABASE_DB_PASSWORD` (database password used by `supabase db push`)
 - `EAS_PROJECT_ID` (optional, only for EAS-linked builds later)
 
 ### Adding NewsAPI story sources

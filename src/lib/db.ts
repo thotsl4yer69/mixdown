@@ -24,29 +24,35 @@ let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 function getDb() {
   if (!dbPromise) {
-    dbPromise = SQLite.openDatabaseAsync("mixdown-telemetry.db").then(async (db) => {
-      await db.execAsync(`
-        PRAGMA journal_mode = WAL;
-        CREATE TABLE IF NOT EXISTS pending_events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          item_id TEXT NOT NULL,
-          bucket TEXT,
-          event TEXT NOT NULL,
-          dwell_ms INTEGER,
-          completion REAL,
-          occurred_at TEXT NOT NULL,
-          synced INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE INDEX IF NOT EXISTS pending_events_synced_idx ON pending_events (synced);
+    dbPromise = (async () => {
+      try {
+        const db = await SQLite.openDatabaseAsync("mixdown-telemetry.db");
+        await db.execAsync(`
+          PRAGMA journal_mode = WAL;
+          CREATE TABLE IF NOT EXISTS pending_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id TEXT NOT NULL,
+            bucket TEXT,
+            event TEXT NOT NULL,
+            dwell_ms INTEGER,
+            completion REAL,
+            occurred_at TEXT NOT NULL,
+            synced INTEGER NOT NULL DEFAULT 0
+          );
+          CREATE INDEX IF NOT EXISTS pending_events_synced_idx ON pending_events (synced);
 
-        CREATE TABLE IF NOT EXISTS seen_cache (
-          item_id TEXT PRIMARY KEY,
-          hidden INTEGER NOT NULL DEFAULT 0,
-          seen_at TEXT NOT NULL
-        );
-      `);
-      return db;
-    });
+          CREATE TABLE IF NOT EXISTS seen_cache (
+            item_id TEXT PRIMARY KEY,
+            hidden INTEGER NOT NULL DEFAULT 0,
+            seen_at TEXT NOT NULL
+          );
+        `);
+        return db;
+      } catch (error) {
+        dbPromise = null;
+        throw error;
+      }
+    })();
   }
   return dbPromise;
 }

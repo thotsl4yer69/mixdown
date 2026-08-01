@@ -29,6 +29,9 @@ object MediaCache {
 
     private fun buildCache(context: Context): SimpleCache {
         val dir = File(context.cacheDir, CACHE_DIR_NAME)
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw IllegalStateException("Failed to create media cache directory: ${dir.absolutePath}")
+        }
         val evictor = LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES)
         val databaseProvider = StandaloneDatabaseProvider(context)
         return SimpleCache(dir, evictor, databaseProvider)

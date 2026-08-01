@@ -71,6 +71,7 @@ class PreloadController(private val context: Context) {
     private val pool = mutableListOf<Slot>()
     private var activeItemId: String? = null
     private var pendingSurface: Surface? = null
+    private var suspended = false
 
     fun decoderBudget(): Int = slotBudget
 
@@ -79,6 +80,7 @@ class PreloadController(private val context: Context) {
         queue = items
         this.currentIndex = if (items.isEmpty()) 0 else currentIndex.coerceIn(0, items.size - 1)
         slotBudget = slotHint.coerceIn(MIN_SLOT_BUDGET, MAX_SLOT_BUDGET)
+        if (suspended) return
         ensurePoolSize()
         reconcile()
     }
@@ -108,6 +110,13 @@ class PreloadController(private val context: Context) {
     }
 
     fun resumeActive() {
+        if (!suspended) {
+            activeSlot()?.player?.playWhenReady = true
+            return
+        }
+        suspended = false
+        ensurePoolSize()
+        reconcile()
         activeSlot()?.player?.playWhenReady = true
     }
 
@@ -121,14 +130,19 @@ class PreloadController(private val context: Context) {
         return Pair(player.currentPosition, if (duration == C.TIME_UNSET) 0L else duration)
     }
 
-    /** Pause every player and drop the attached surface without tearing the pool down. */
+    /** Pause, detach, and release every player while the app is backgrounded. */
     fun suspendAll() {
+        suspended = true
         detachSurface()
-        for (slot in pool) slot.player.playWhenReady = false
+        // Releasing the players, rather than merely pausing them, gives the OS back
+        // hardware decoder resources while the app is backgrounded.
+        for (slot in pool) slot.player.release()
+        pool.clear()
     }
 
     /** Called when the native view's surface is (re)created; reattaches to the active slot. */
     fun attachSurface(surface: Surface) {
+        if (suspended) return
         pendingSurface = surface
         activeSlot()?.let { moveSurfaceTo(it) }
     }
@@ -145,6 +159,7 @@ class PreloadController(private val context: Context) {
     }
 
     fun release() {
+        suspended = false
         detachSurface()
         for (slot in pool) slot.player.release()
         pool.clear()

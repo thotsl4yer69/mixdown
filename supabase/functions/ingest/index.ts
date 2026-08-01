@@ -43,6 +43,9 @@ const ADAPTERS: Record<string, Adapter> = {
  * ranker fits inside a free tier.
  */
 const session = new Supabase.ai.Session("gte-small");
+const MIN_RUN_INTERVAL_MS = 2 * 60 * 1000;
+let lastRunAt = 0;
+let running = false;
 
 async function embed(text: string): Promise<number[] | null> {
   try {
@@ -112,28 +115,35 @@ Deno.serve(async (req: Request) => {
   if (secret && req.headers.get("x-ingest-secret") !== secret) {
     return new Response("forbidden", { status: 403 });
   }
+  const now = Date.now();
+  if (running || now - lastRunAt < MIN_RUN_INTERVAL_MS) {
+    return Response.json({ error: "ingest already running or recently started" }, { status: 429 });
+  }
+  running = true;
+  lastRunAt = now;
 
-  const db = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    { auth: { persistSession: false } },
-  );
+  try {
+    const db = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { auth: { persistSession: false } },
+    );
 
-  const { data: sources, error } = await db.rpc("due_sources");
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+    const { data: sources, error } = await db.rpc("due_sources");
+    if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  const report: Record<string, string> = {};
+    const report: Record<string, string> = {};
 
-  for (const source of (sources ?? []) as SourceRow[]) {
-    const adapter = ADAPTERS[source.kind];
-    if (!adapter) {
-      report[source.label] = `no adapter for kind ${source.kind}`;
-      continue;
-    }
+    for (const source of (sources ?? []) as SourceRow[]) {
+      const adapter = ADAPTERS[source.kind];
+      if (!adapter) {
+        report[source.label] = `no adapter for kind ${source.kind}`;
+        continue;
+      }
 
-    try {
-      const drafts = await adapter.fetch(source);
-      const written = await persist(db, source, drafts);
+      try {
+        const drafts = await adapter.fetch(source);
+        const written = await persist(db, source, drafts);
 
       // Cache a resolved YouTube uploads playlist so we never pay for it twice.
       const resolved = youtubeResolutions.get(source.id);
@@ -157,21 +167,27 @@ Deno.serve(async (req: Request) => {
         })
         .eq("id", source.id);
 
-      report[source.label] = `+${written} of ${drafts.length}`;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await db
-        .from("sources")
-        .update({
-          last_polled_at: new Date().toISOString(),
-          last_error: message.slice(0, 500),
-          consecutive_failures: source.consecutive_failures + 1,
-        })
-        .eq("id", source.id);
-      report[source.label] = `error: ${message}`;
-      console.error(`[${source.label}]`, message);
+        report[source.label] = `+${written} of ${drafts.length}`;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await db
+          .from("sources")
+          .update({
+            last_polled_at: new Date().toISOString(),
+            last_error: message.slice(0, 500),
+            consecutive_failures: source.consecutive_failures + 1,
+          })
+          .eq("id", source.id);
+        report[source.label] = `error: ${message}`;
+        console.error(`[${source.label}]`, message);
+      }
     }
-  }
 
-  return Response.json({ polled: Object.keys(report).length, report });
+    return Response.json({ polled: Object.keys(report).length, report });
+  } catch (err) {
+    console.error("ingest failed:", err);
+    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+  } finally {
+    running = false;
+  }
 });
