@@ -56,17 +56,6 @@ jobs:
           echo "TIKHUB_IO_KEY=psgzWMAu4nqLyUHCPKmv7EiBJAGtatx46DOItXWZdPCxmV+QOH+9TxCCNw==" >> .env
           echo "NEWSAPI_KEY=37d9e07172ef4119812c1e8dbcddd1ad" >> .env
 
-      - name: Set up Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Push DB Migrations
-        # Uses the project ID extracted from your SUPABASE_URL
-        run: supabase db push --project-ref hknyyyudeeemhyugzmja
-        env:
-          SUPABASE_ACCESS_TOKEN: sb_secret_K2FNAuWPRoAUNJImTncTOw_WrY54g0q
-
       - name: Install dependencies
         run: npm ci
 
@@ -86,10 +75,3 @@ jobs:
           name: mixdown-release-apk
           path: ${{ github.workspace }}/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-
-      - name: Attach APK to GitHub release
-        if: ${{ github.event_name == 'release' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ github.workspace }}/android/app/build/outputs/apk/release/*.apk
-          fail_on_unmatched_files: true
