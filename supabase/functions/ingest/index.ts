@@ -117,7 +117,7 @@ Deno.serve(async (req: Request) => {
   }
   const now = Date.now();
   if (running || now - lastRunAt < MIN_RUN_INTERVAL_MS) {
-    return Response.json({ error: "ingest already running or recently completed" }, { status: 429 });
+    return Response.json({ error: "ingest already running or recently started" }, { status: 429 });
   }
   running = true;
   lastRunAt = now;

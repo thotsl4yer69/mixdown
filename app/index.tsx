@@ -45,6 +45,7 @@ export default function FeedScreen() {
   const loadFeed = useCallback(async () => {
     setLoadStatus("loading");
     setLoadError(null);
+    setEndOfFeed(false);
     try {
       const p = await fetchPrefs();
       setPrefs(p);
@@ -170,7 +171,7 @@ export default function FeedScreen() {
 
       // Approaching the end of the loaded page — fetch more before the user
       // can outrun the list.
-      if (index >= items.length - 5 && !loadingMore && prefs) {
+      if (index >= items.length - 5 && !loadingMore && !endOfFeed && prefs) {
         setLoadingMore(true);
         fetchQueuePageWithRetry(prefs, new Set(items.map((i) => i.id)))
           .then((page) => {
@@ -183,7 +184,7 @@ export default function FeedScreen() {
           .finally(() => setLoadingMore(false));
       }
     },
-    [items, settledIndex, commitDwell, loadingMore, prefs, settledIndexSV],
+    [items, settledIndex, commitDwell, loadingMore, endOfFeed, prefs, settledIndexSV],
   );
 
   // Settle on the very first item once data lands.
