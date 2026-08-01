@@ -29,6 +29,7 @@ object MediaCache {
 
     private fun buildCache(context: Context): SimpleCache {
         val dir = File(context.cacheDir, CACHE_DIR_NAME)
+        dir.mkdirs()
         val evictor = LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES)
         val databaseProvider = StandaloneDatabaseProvider(context)
         return SimpleCache(dir, evictor, databaseProvider)
