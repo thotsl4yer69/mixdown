@@ -130,7 +130,7 @@ class PreloadController(private val context: Context) {
         return Pair(player.currentPosition, if (duration == C.TIME_UNSET) 0L else duration)
     }
 
-    /** Pause every player and drop the attached surface without tearing the pool down. */
+    /** Pause, detach, and release every player while the app is backgrounded. */
     fun suspendAll() {
         suspended = true
         detachSurface()
