@@ -42,6 +42,7 @@ jobs:
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_REF: hknyyyudeeemhyugzmja
       EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      APK_DELIVERY_WEBHOOK_URL: ${{ secrets.APK_DELIVERY_WEBHOOK_URL }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -113,9 +114,7 @@ jobs:
           if-no-files-found: error
 
       - name: Deliver APK to private webhook
-        if: ${{ secrets.APK_DELIVERY_WEBHOOK_URL != '' }}
-        env:
-          APK_DELIVERY_WEBHOOK_URL: ${{ secrets.APK_DELIVERY_WEBHOOK_URL }}
+        if: env.APK_DELIVERY_WEBHOOK_URL != ''
         run: |
           apk="$(find "$GITHUB_WORKSPACE/android/app/build/outputs/apk/release" -name '*.apk' -print -quit)"
           test -n "$apk"
