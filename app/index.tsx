@@ -14,7 +14,7 @@ import { ArticleCard } from "../src/components/cards/ArticleCard";
 import { SocialCard } from "../src/components/cards/SocialCard";
 import { YouTubeEmbedOverlay } from "../src/components/YouTubeEmbedOverlay";
 import { Media3FeedView, media3Feed, useMedia3FeedLifecycle } from "media3-feed";
-import { fetchPrefs, fetchQueuePage } from "../src/lib/queue";
+import { fetchPrefs, fetchQueuePageWithRetry } from "../src/lib/queue";
 import { logEvent } from "../src/lib/db";
 import { rewardFor, updateBandit } from "../src/lib/bandit";
 import type { FeedItem, Prefs } from "../src/lib/types";
@@ -32,6 +32,7 @@ export default function FeedScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadStatus, setLoadStatus] = useState<"loading" | "empty" | "error" | "ready">("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [endOfFeed, setEndOfFeed] = useState(false);
 
   const scrollY = useSharedValue(0);
   const settledIndexSV = useSharedValue(0);
@@ -47,7 +48,7 @@ export default function FeedScreen() {
     try {
       const p = await fetchPrefs();
       setPrefs(p);
-      const page = await fetchQueuePage(p);
+      const page = await fetchQueuePageWithRetry(p);
       setItems(page.items);
       setLoadStatus(page.items.length > 0 ? "ready" : "empty");
     } catch (err) {
@@ -171,8 +172,14 @@ export default function FeedScreen() {
       // can outrun the list.
       if (index >= items.length - 5 && !loadingMore && prefs) {
         setLoadingMore(true);
-        fetchQueuePage(prefs, new Set(items.map((i) => i.id)))
-          .then((page) => setItems((cur) => [...cur, ...page.items]))
+        fetchQueuePageWithRetry(prefs, new Set(items.map((i) => i.id)))
+          .then((page) => {
+            setEndOfFeed(page.items.length === 0);
+            if (page.items.length > 0) {
+              setEndOfFeed(false);
+              setItems((cur) => [...cur, ...page.items]);
+            }
+          })
           .finally(() => setLoadingMore(false));
       }
     },
@@ -305,6 +312,18 @@ export default function FeedScreen() {
         scrollEventThrottle={16}
         onMomentumScrollEnd={(e) => handleSettleFromOffset(e.nativeEvent.contentOffset.y)}
         onScrollEndDrag={(e) => handleSettleFromOffset(e.nativeEvent.contentOffset.y)}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.feedFooter}>
+              <ActivityIndicator color={color.learn} />
+              <Text style={styles.footerText}>Loading more from the feed…</Text>
+            </View>
+          ) : endOfFeed ? (
+            <View style={styles.feedFooter}>
+              <Text style={styles.footerText}>You’re caught up. New items will appear here soon.</Text>
+            </View>
+          ) : null
+        }
       />
 
       <Animated.View style={[StyleSheet.absoluteFill, { height }, overlayStyle]} pointerEvents="box-none">
@@ -382,6 +401,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
     gap: space.sm,
+  },
+  feedFooter: {
+    minHeight: 120,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: space.xl,
+    gap: space.sm,
+  },
+  footerText: {
+    ...type.meta,
+    fontSize: scale.xs,
+    color: color.textFaint,
+    textAlign: "center",
   },
   nsfwTag: {
     ...type.meta,

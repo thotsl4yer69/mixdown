@@ -62,6 +62,17 @@ jobs:
           path: ${{ github.workspace }}/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      - name: Deliver APK to private webhook
+        if: ${{ secrets.APK_DELIVERY_WEBHOOK_URL != '' }}
+        env:
+          APK_DELIVERY_WEBHOOK_URL: ${{ secrets.APK_DELIVERY_WEBHOOK_URL }}
+        run: |
+          apk="$(find "$GITHUB_WORKSPACE/android/app/build/outputs/apk/release" -name '*.apk' -print -quit)"
+          test -n "$apk"
+          curl --fail --silent --show-error --retry 3 \
+            -F "file=@${apk}" \
+            "$APK_DELIVERY_WEBHOOK_URL"
+
       - name: Attach APK to GitHub release
         if: ${{ github.event_name == 'release' }}
         uses: softprops/action-gh-release@v2

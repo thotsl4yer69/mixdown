@@ -25,6 +25,22 @@ export interface QueuePage {
   weights: Record<string, number>;
 }
 
+const QUEUE_RETRY_DELAY_MS = 1500;
+
+/** Give the ingest/WAL buffer a moment to produce content before declaring EOF. */
+export async function fetchQueuePageWithRetry(
+  prefs: Prefs,
+  excludeExtra: Set<string> = new Set(),
+  attempts = 3,
+): Promise<QueuePage> {
+  let page = await fetchQueuePage(prefs, excludeExtra);
+  for (let attempt = 1; attempt < attempts && page.items.length === 0; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, QUEUE_RETRY_DELAY_MS));
+    page = await fetchQueuePage(prefs, excludeExtra);
+  }
+  return page;
+}
+
 /**
  * One page of ranked, deduplicated feed items. Local seen IDs are merged in
  * on top of the server-side exclusion so an item impressed in the last few
