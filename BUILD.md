@@ -1,220 +1,105 @@
-# Building mixdown
+# Building Mixdown
 
-Distribution note up front: this app supports an NSFW mode, which puts it
-permanently outside Google Play's content policy. Every path below produces
-a sideloadable APK, never a Play submission.
+Mixdown is an **Android-first software prototype** built with Expo/React Native plus a custom Kotlin/Media3 module. This guide separates mobile-client configuration from server-side ingestion credentials so secrets are not accidentally compiled into APKs.
 
-## Fast path
+See [`SECURITY.md`](SECURITY.md) before configuring any provider credentials.
 
-Steps 1–3 below (Supabase project, credentials, ingestion deploy + cron) are
-almost entirely mechanical once you have the account values. `setup.sh`
-does all of it in one run:
+## 1. Prerequisites
 
-```bash
-cp .env.example .env    # fill in every value — see the file for where each comes from
-./setup.sh
-```
-
-What it can't do: create the Supabase project, the Reddit OAuth app, or the
-Google Cloud API key — each of those needs an authenticated browser session
-on that site. You still do that part once, by hand. Everything after — link,
-push migrations, set secrets, deploy, schedule cron, trigger a first poll —
-is what the script replaces.
-
-The step-by-step version below is what `setup.sh` runs, spelled out — read
-it if the script fails partway and you need to resume manually, or if you
-want to understand what each piece is actually doing before running it.
-
----
-
-## 0. Prerequisites
-
-- Node.js 20+, and a package manager (`npm` is assumed below)
-- A Supabase account (free tier)
-- JDK 17 and the Android SDK (only needed for **local** builds — skip if
-  you're using EAS Build, which builds in the cloud)
-- `npm install -g eas-cli` if using EAS
+- Node.js 20+
+- npm
+- JDK 17 + Android SDK for local Android builds
+- a Supabase project for the current backend/data path
+- Supabase CLI only when deploying migrations/functions
 
 ```bash
-cd mixdown
 npm install
 ```
 
----
+## 2. Mobile-client configuration
 
-## 1. Supabase project
+The mobile application only needs client-safe Supabase configuration:
 
-1. Create a project at supabase.com — note the **Project URL** and either the
-   **anon public key** or newer **publishable key** (Project Settings → API).
-2. Install the Supabase CLI and link it:
-
-```bash
-npm install -g supabase
-supabase login
-supabase link --project-ref <your-project-ref>
+```dotenv
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<anon-public-key>
+# or
+SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 ```
 
-3. Run the migrations (schema, seed data, RLS):
+Optional:
+
+```dotenv
+EAS_PROJECT_ID=<expo-project-id>
+```
+
+`app.config.js` reads these values and exposes them to the app. Anything exposed to an Android application must be treated as public/extractable.
+
+**Never put a Supabase secret/service-role key, database password, OAuth client secret or ingestion-provider credential into the Android build environment.**
+
+## 3. Supabase schema
+
+Link the intended project and apply migrations from a trusted developer/admin environment:
 
 ```bash
+supabase login
+supabase link --project-ref <project-ref>
 supabase db push
 ```
 
-This creates every table, the `get_feed` / `absorb_taste` / `due_sources`
-functions, and seeds the default topic buckets and source list from
-`supabase/migrations/0002_seed.sql`. Nothing here is your final config — it's
-the starting point you'll edit from the app's Settings screen.
+The migration set contains the application schema, RLS policies, feed/ranking functions and seed data used by the prototype.
 
-4. Confirm `pgvector` is enabled (the migration does this, but double-check
-   under Database → Extensions if `db push` reports an error — some Supabase
-   plans require enabling extensions from the dashboard first).
+A Supabase anon/publishable key is intentionally client-facing. **RLS and server-side database policy are the real authorization boundary.**
 
----
+## 4. Ingestion credentials stay server-side
 
-## 2. Ingestion credentials
+External source credentials belong in Supabase Edge Function secrets, not `.env` values injected into the APK.
 
-### Reddit (OAuth app, required)
+Depending on which adapters you enable, server-side secrets may include values such as:
 
-1. Go to https://www.reddit.com/prefs/apps → **create another app**.
-2. Type: **script**. Redirect URI: `https://localhost` (unused, but required
-   by the form).
-3. Note the client ID (under the app name) and client secret.
+```text
+REDDIT_CLIENT_ID
+REDDIT_CLIENT_SECRET
+YOUTUBE_API_KEY
+NEWSAPI_KEY
+INGEST_SECRET
+```
 
-The default seed sources use application-only auth, which **cannot** read
-`over_18` content — this is a Reddit platform restriction, not a choice made
-here. If you add NSFW subreddits later, switch to the password grant (see
-the comment in `supabase/functions/ingest/adapters/reddit.ts`) using an
-account that has enabled "show me adult content" in its own Reddit
-preferences, and set `REDDIT_GRANT=password` plus `REDDIT_USERNAME` /
-`REDDIT_PASSWORD` below.
-
-### YouTube (Data API key, required for the youtube-kind sources)
-
-1. In Google Cloud Console, create a project (or reuse one), enable
-   **YouTube Data API v3**.
-2. Credentials → Create Credentials → API key. Restrict it to the YouTube
-   Data API v3.
-
-### Set the secrets on the Edge Function
+Set them through the Supabase secret mechanism from a trusted admin environment:
 
 ```bash
 supabase secrets set \
-  REDDIT_CLIENT_ID=xxx \
-  REDDIT_CLIENT_SECRET=xxx \
-  YOUTUBE_API_KEY=xxx \
-  NEWSAPI_KEY=xxx \
-  INGEST_SECRET=$(openssl rand -hex 24)
+  REDDIT_CLIENT_ID=<value> \
+  REDDIT_CLIENT_SECRET=<value> \
+  YOUTUBE_API_KEY=<value> \
+  NEWSAPI_KEY=<value> \
+  INGEST_SECRET=<random-high-entropy-value>
 ```
 
-`INGEST_SECRET` is a shared secret the cron job sends as an `x-ingest-secret`
-header — it stops random internet traffic from triggering your ingestion
-function and burning your API quotas.
+Only configure adapters you actually use. Third-party APIs change independently of this repository; check current provider requirements when enabling them.
 
-`NEWSAPI_KEY` is optional. Only set it if you want to add `newsapi` story
-sources.
-
----
-
-## 3. Deploy the ingestion function
+## 5. Deploy ingestion
 
 ```bash
 supabase functions deploy ingest --no-verify-jwt
 ```
 
-`--no-verify-jwt` because the cron trigger calls this with the shared secret
-above, not a user session.
+The current ingestion design can use a server-held `INGEST_SECRET` for its scheduled trigger. Treat that as server-to-server configuration and do not include it in the mobile client.
 
-### Schedule it
+If you schedule ingestion with `pg_cron`/`pg_net`, keep the trigger secret in an appropriate server/database secret path rather than publishing it in source.
 
-Supabase's pg_cron + pg_net combo is the free-tier-friendly way to do this
-entirely inside Postgres. In the SQL editor:
+## 6. Local Android development
 
-```sql
-select cron.schedule(
-  'mixdown-ingest',
-  '*/15 * * * *',  -- every 15 minutes; due_sources() only returns what's actually due
-  $$
-  select net.http_post(
-    url := 'https://<your-project-ref>.supabase.co/functions/v1/ingest',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'x-ingest-secret', '<the INGEST_SECRET you set above>'
-    )
-  );
-  $$
-);
-```
-
-(Enable the `pg_cron` and `pg_net` extensions first if prompted — Database →
-Extensions.)
-
-Verify it's working:
-
-```bash
-curl -X POST https://<your-project-ref>.supabase.co/functions/v1/ingest \
-  -H "x-ingest-secret: <your INGEST_SECRET>"
-```
-
-You should get back a JSON report with one line per source polled. Check
-`sources.last_error` in the table editor if any show an error.
-
----
-
-## 4. Configure the app
-
-Copy `.env.example` to `.env` and fill in at least:
-
-```bash
-SUPABASE_URL=https://<your-project-ref>.supabase.co
-SUPABASE_ANON_KEY=<your anon public key>
-# or
-SUPABASE_PUBLISHABLE_KEY=<your newer Supabase publishable key>
-```
-
-`app.config.js` reads those values automatically for local builds, and GitHub
-Actions can provide the same values with repository secrets.
-
-Reconcile dependency versions against your installed Expo SDK (pinned
-versions in `package.json` may have moved on since this was written):
-
-```bash
-npx expo install --fix
-```
-
----
-
-## 5. Run it in development
-
-The custom Media3 native module means **Expo Go will not work** — this
-project requires a development build from the first run.
+The custom Media3 module means Expo Go is not sufficient for the full Android build.
 
 ```bash
 npx expo prebuild --platform android
 npx expo run:android
 ```
 
-`prebuild` generates the `android/` directory and links `modules/media3-feed`
-via Expo's autolinking (declared through `expo-module.config.json`).
-`run:android` builds and installs a debug build onto a connected device or
-emulator with Metro attached.
+For a local development `.env`, use only client-safe app configuration unless the command being run is explicitly a trusted server/admin command.
 
----
-
-## 6. Build a release APK
-
-### Option A — EAS Build (cloud, no local Android SDK needed)
-
-```bash
-eas login
-eas build:configure          # writes your project ID into app.json/eas.json
-eas build --platform android --profile preview
-```
-
-This produces a directly-installable APK (see `eas.json` — the `preview`
-profile sets `buildType: apk`, not the Play-oriented `app-bundle`). EAS gives
-you a download link and QR code when it finishes.
-
-### Option B — Local Gradle build
+## 7. Local release-style APK build
 
 ```bash
 npx expo prebuild --platform android
@@ -222,109 +107,59 @@ cd android
 ./gradlew assembleRelease
 ```
 
-Output lands at `android/app/build/outputs/apk/release/app-release.apk`.
+Output is normally under:
 
-## 7. Build in GitHub Actions
+```text
+android/app/build/outputs/apk/release/
+```
 
-This repo includes `/home/runner/work/mixdown/mixdown/.github/workflows/android-build.yml`
-to typecheck, prebuild Android, assemble a release APK, and upload it as a
-workflow artifact.
+A release-style Gradle task does not by itself prove production release readiness or establish a trusted signing identity.
 
-It now also runs on published GitHub releases (and `v*` tags) and attaches
-the APK directly to the release page as a downloadable asset.
+## 8. GitHub Actions
 
-To make the artifact immediately runnable against your backend, add these
-repository secrets before running the workflow:
+`.github/workflows/android-build.yml` performs:
+
+1. dependency installation;
+2. TypeScript typecheck;
+3. Expo Android prebuild;
+4. Gradle APK assembly;
+5. artifact upload.
+
+The workflow now accepts only these client-safe/application configuration values from GitHub Actions Secrets:
 
 - `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_PUBLISHABLE_KEY` (optional alternative to `SUPABASE_ANON_KEY`)
-- `SUPABASE_SECRET_KEY`
-- `SUPABASE_JWKS_URL`
-- `APITUBE_KEY`
-- `NEWDATA_IO_KEY`
-- `SEARCHCANS_API`
-- `SOCIAVAULT_KEY`
-- `APIFY_KEY`
-- `OPUS_API_KEY`
-- `ZERNIO_KEY`
-- `TIKTOK_CLIENT_ID`
-- `TIKTOK_CLIENT_SECRET`
-- `TIKHUB_IO_KEY`
-- `NEWSAPI_KEY`
-- `SUPABASE_ACCESS_TOKEN` (Supabase CLI access token for linking the project)
-- `SUPABASE_DB_PASSWORD` (database password used by `supabase db push`)
-- `EAS_PROJECT_ID` (optional, only for EAS-linked builds later)
+- `SUPABASE_ANON_KEY` or `SUPABASE_PUBLISHABLE_KEY`
+- optional `EAS_PROJECT_ID`
 
-### Adding NewsAPI story sources
+It intentionally does **not** receive provider API secrets, Supabase secret/service-role credentials, database passwords or OAuth client secrets.
 
-If you set `NEWSAPI_KEY` as an Edge Function secret, you can add `newsapi`
-sources from Settings with config JSON like:
+If the Supabase client configuration is absent, compile verification may still succeed, but the resulting artifact will not have a usable connected backend configuration.
 
-```json
-{"endpoint":"everything","q":"technology","language":"en","sortBy":"publishedAt"}
-```
+## 9. Signing
 
-or:
+For trusted distribution, create and protect a dedicated Android signing identity outside the repository. Do not commit keystores or encoded keystores.
 
-```json
-{"endpoint":"top-headlines","country":"us","category":"technology"}
-```
+The current workflow should be treated as prototype build automation until a deliberate signing/release process is added and tested.
 
-If those secrets are omitted, the workflow still builds an APK, but the app
-will stop at startup until valid Supabase values are supplied.
+## 10. Security incident note
 
-### Triggering and downloading
+An older public Android workflow committed multiple live-looking service credentials directly in YAML. Those values were removed on 2026-08-13.
 
-- Push a tag like `v1.0.0` to run the APK build and upload a workflow artifact.
-- Publish a GitHub Release to run the same build and attach the APK asset to the repository’s Releases page.
-- APK(s) are uploaded from Gradle output at:
-  `android/app/build/outputs/apk/release/*.apk`
+Because Git history retains old revisions, all non-public credentials from that historical block must be **revoked/rotated at their providers**. Removing them from `main` is not sufficient.
 
-For a real release you'll want to sign it with your own keystore rather than
-the debug key `assembleRelease` falls back to:
+See [`SECURITY.md`](SECURITY.md) for the provider categories requiring review.
 
-```bash
-keytool -genkeypair -v -storetype PKCS12 \
-  -keystore mixdown-release.keystore -alias mixdown \
-  -keyalg RSA -keysize 2048 -validity 10000
-```
+## 11. Distribution/content policy
 
-Then wire the keystore into `android/app/build.gradle` under
-`signingConfigs.release` (standard React Native/Expo release-signing setup —
-see the *"Generate an upload key"* section of Android's own docs, since the
-exact Gradle block format shifts between Android Gradle Plugin versions and
-is worth checking against whatever AGP version `expo prebuild` generated).
+Mixdown contains configurable content-source features, including mature-content modes. Distribution eligibility depends on the exact build and the **current** rules of the chosen platform/store. Check those rules at release time instead of relying on a permanent policy claim in repository documentation.
 
-### Install it
+## Evidence boundary
 
-```bash
-adb install android/app/build/outputs/apk/release/app-release.apk
-```
+A successful local/CI APK build proves that the software can compile under the tested environment. It does not prove:
 
----
-
-## 7. Updates without a new APK
-
-Expo Updates can push JS-only changes (ranking tweaks, UI changes) without a
-rebuild — but since Play is off the table, point it at your own hosting
-rather than EAS's default update service, or just re-run step 6 when you
-change anything. For a single-user app, re-building is usually simpler than
-standing up OTA infrastructure; mentioned here so you know the option
-exists if the ingestion/ranking logic starts changing often.
-
----
-
-## What's config, not code
-
-Everything in this list is meant to be changed from the Settings screen or
-the Supabase table editor, never by editing source:
-
-- Topic buckets, weights, enabled state — `topic_buckets` table / faders
-- Every content source and its poll interval — `sources` table / in-app form
-- NSFW mode, ranker drift, autoplay, page size, prefetch depth — `prefs` table
-- Ranking math constants (similarity/recency/explore weights, half-life) —
-  also `prefs`, read by `get_feed()`
-
-If you find yourself editing a `.ts` file to add a subreddit, something's
-wrong — file an issue against yourself.
+- production backend security or capacity;
+- recommendation quality;
+- long-term compatibility with external APIs;
+- store approval;
+- trusted release signing;
+- current third-party provider availability.
