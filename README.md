@@ -1,77 +1,119 @@
-# mixdown
+# Mixdown
 
-A personal, multimodal, infinite-scroll feed — video, articles, and Reddit
-threads in one paged swipe, ranked by a bandit you can steer with real
-sliders. Android only, sideloaded APK only (see "Distribution" below).
+**Android-first multimodal feed prototype combining media playback, configurable sources and adaptive ranking.**
 
-Build instructions: **[BUILD.md](./BUILD.md)**. This file is a map of the
-repo, not a tutorial. Expo reads runtime config from `/home/runner/work/mixdown/mixdown/.env`
-through `app.config.js`, and the same variables can be injected from GitHub
-Actions secrets for CI builds.
+[![Status](https://img.shields.io/badge/status-software%20prototype-blue)](PROJECT_STATUS.md)
+![Mobile](https://img.shields.io/badge/mobile-Expo%20%2B%20Android-blue)
+![Native](https://img.shields.io/badge/native-Kotlin%20%2B%20Media3-green)
 
-Use Node 20 (`/home/runner/work/mixdown/mixdown/.nvmrc`) for local and CI builds.
+> **Maturity: Software prototype.** Mixdown explores consumer-feed architecture, native Android media performance and configurable ranking. Recommendation quality, ingestion reliability and deployment scale should be demonstrated with tests rather than inferred from the architecture.
 
-## Layout
+## What it is
 
-```
-app/                      Expo Router screens
-  _layout.tsx              Root: fonts, gesture root, telemetry sync
-  index.tsx                 The feed itself
-  reader/[id].tsx           Full article/thread reader
-  settings/index.tsx        Faders, NSFW toggle, source management
+Mixdown is a personal multimodal feed experiment that brings different content types into one paged/swipe interface and lets the user influence ranking preferences directly.
+
+The engineering challenge is broader than the UI: a JavaScript/Expo application coordinates with a custom native Android Media3 module, local telemetry buffering and a Supabase-backed ingestion/ranking data layer.
+
+## Repository map
+
+```text
+app/
+  Expo Router screens
+  feed / reader / settings
 
 src/
-  theme/tokens.ts           Design tokens — the only place colours/type live
-  components/               Cards (video/article/social), Fader, badges
-  lib/
-    supabase.ts              Client singleton
-    types.ts                 Shared types mirroring the schema
-    queue.ts                 Feed pagination + prefs
-    bandit.ts                Thompson sampling over topic buckets
-    db.ts                    SQLite write-ahead telemetry buffer + sync
+  theme and UI components
+  Supabase client/data types
+  feed queue/preferences
+  Thompson-sampling ranker
+  SQLite telemetry buffer + sync
 
-modules/media3-feed/        Custom Expo Module (Kotlin + Media3)
-  android/.../PreloadController.kt   Fixed decoder pool + byte-ahead prefetch
-  android/.../Media3FeedView.kt      The one persistent SurfaceView
-  android/.../MediaCache.kt          Disk cache + decoder-instance probe
-  src/index.ts               TS bridge to JS
+modules/media3-feed/
+  custom Expo/Kotlin module
+  Media3 playback/preload/cache work
 
 supabase/
-  migrations/                Schema, seed data, RLS — run via `supabase db push`
-  functions/ingest/          Edge Function: polls sources, embeds, upserts
-    adapters/                One file per source kind (rss/peertube/reddit/youtube)
+  migrations / RLS / seed data
+  ingestion Edge Function
+  source adapters
 ```
 
-## The two ideas that shape everything else
+See [BUILD.md](BUILD.md) for the build workflow rather than relying on machine-specific CI paths.
 
-**One surface, not a pool of surfaces.** In a paged feed exactly one item is
-ever visible. So there's exactly one `SurfaceView`, absolutely positioned and
-tracked by a Reanimated worklet — never mounted or unmounted during a scroll.
-What *is* pooled (3–4 instances) is warm `MediaCodec` decoders, prepared with
-no surface attached. Attaching an already-prepared player's surface on settle
-is what makes playback feel instant; see `PreloadController.kt`.
+## Two architecture ideas
 
-**Nothing about your taste lives in code.** Sources, topic buckets and their
-weights, the NSFW toggle, ranker drift, prefetch depth — all rows in
-Postgres, all editable from Settings. If a change requires editing a `.ts`
-file, that's a bug in this build.
+### One visible media surface
 
-## Distribution
+A vertically paged feed normally displays one active media item at a time. Mixdown experiments with keeping a persistent Android media surface while preparing a small set of player/decoder resources around it, instead of repeatedly creating/destroying the complete view path during scroll transitions.
 
-NSFW mode is a first-class, isolated feature (see `supabase/migrations/0003_rls.sql`
-and Settings → NSFW mode), which puts this app permanently outside Google
-Play's content policy. It's built for sideloading — `BUILD.md` never produces
-an `.aab`, only `.apk`.
+The implementation lives primarily in the custom Media3 module and should be evaluated with device profiling rather than assumed to eliminate every playback hitch.
 
-## What's genuinely out of scope
+### Preferences live in data
 
-- iOS. The native module is Android-only; `expo-module.config.json` declares
-  `"platforms": ["android"]` on purpose.
-- Generated Supabase `Database` types. The client casts a couple of joined
-  queries at a well-contained boundary instead (see the comment in
-  `app/reader/[id].tsx`). Running `supabase gen types typescript` and wiring
-  it into `src/lib/supabase.ts` would remove those casts — worth doing if
-  the schema starts changing often.
-- Any content ingestion path that isn't RSS, PeerTube's REST API, the
-  official YouTube Data API, or Reddit's OAuth API. See the note in the
-  project's chat history if you're wondering why TikTok/Reels aren't here.
+Sources, topic/ranking preferences and product settings are designed to be data/configuration rather than scattered constants in UI code. This makes it possible to change behaviour through application state/settings and backend data without recompiling every preference adjustment.
+
+## Data / ranking layer
+
+The project explores:
+
+- configurable content-source adapters;
+- Postgres/Supabase-backed application data;
+- RLS policy work;
+- local SQLite write-ahead telemetry buffering;
+- synchronisation of local events;
+- Thompson-sampling/bandit-style ranking over topic buckets;
+- user-adjustable preference controls.
+
+The use of a bandit algorithm is an implementation choice, not evidence that the resulting feed is objectively better or more engaging. Ranking quality needs real evaluation data.
+
+## Android media layer
+
+The custom Expo module is Android-specific and uses Kotlin/Media3 for playback-oriented work that is awkward to express purely in the React Native/Expo layer.
+
+That gives the repository useful evidence of crossing a framework boundary:
+
+```text
+TypeScript / Expo UI
+        │
+        ▼
+ Expo module bridge
+        │
+        ▼
+ Kotlin / Media3
+        │
+        ▼
+ Android playback primitives
+```
+
+## Content and distribution boundary
+
+The project includes user-controlled source/content settings, including support for content categories that may make some distribution channels unsuitable depending on the current store/platform rules and the exact build configuration.
+
+The repository therefore focuses on development/sideloadable Android builds rather than making a permanent claim about any store's policies. Distribution requirements should be checked against current platform rules at release time.
+
+## Build
+
+Use the instructions in [BUILD.md](BUILD.md). Runtime configuration should come from local environment/configuration or CI secrets and must not be committed as live credentials.
+
+The current architecture is Android-first. The native Media3 module means iOS support would require separate implementation work rather than a simple build switch.
+
+## Evidence boundary
+
+Mixdown is a product/engineering prototype. It does not yet prove:
+
+- recommendation quality at scale;
+- ingestion reliability across all external providers;
+- sustained playback performance across Android hardware;
+- production backend capacity;
+- long-term schema compatibility with external APIs;
+- public-store release readiness.
+
+## Development provenance
+
+Mixdown is an authored MAZLABZ project developed with AI coding agents as part of the engineering workflow. AI supports implementation, research, refactoring and testing; product definition, architecture, integration, debugging and acceptance remain the project owner's responsibility.
+
+## Portfolio significance
+
+Mixdown is useful because it spans layers that are often kept separate:
+
+**Expo/React Native · Kotlin · Media3 · Supabase/Postgres · SQLite · ranking systems · mobile product architecture**
