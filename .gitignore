@@ -1,11 +1,41 @@
+# Dependencies / Expo generated state
 node_modules/
 .expo/
 /android/
 /ios/
-*.apk
-*.aab
-.env
 dist/
 web-build/
-.DS_Store
+
+# App/build artifacts
+*.apk
+*.aab
+*.ipa
+*.map
+
+# Local environment / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Supabase/local backend state
 supabase/.temp/
+.supabase/
+
+# Runtime/local data
+*.sqlite
+*.sqlite3
+*.db
+*.log
+*.bak
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
