@@ -94,7 +94,18 @@ export async function localSeenIds(limit = 500): Promise<Set<string>> {
 
 const BATCH_SIZE = 100;
 
-export async function flush(): Promise<{ pushed: number; failed: boolean }> {
+type FlushResult = { pushed: number; failed: boolean };
+let pendingFlush: Promise<FlushResult> | null = null;
+
+/** Serialize timer and background-triggered syncs. Both callers await the
+ * same transaction, so overlapping lifecycle events cannot upload a batch twice. */
+export function flush(): Promise<FlushResult> {
+  if (pendingFlush) return pendingFlush;
+  pendingFlush = flushPending().finally(() => { pendingFlush = null; });
+  return pendingFlush;
+}
+
+async function flushPending(): Promise<FlushResult> {
   const db = await getDb();
   const rows = await db.getAllAsync<{
     id: number;

@@ -17,7 +17,8 @@ export async function fetchPrefs(): Promise<Prefs> {
 }
 
 export async function setPref<K extends keyof Prefs>(key: K, value: Prefs[K]) {
-  await supabase.from("prefs").upsert({ key, value, updated_at: new Date().toISOString() });
+  const { error } = await supabase.from("prefs").upsert({ key, value, updated_at: new Date().toISOString() });
+  if (error) throw error;
 }
 
 export interface QueuePage {
