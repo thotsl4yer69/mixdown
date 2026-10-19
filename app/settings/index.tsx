@@ -55,20 +55,34 @@ export default function SettingsScreen() {
   };
 
   const onBucketCommit = async (key: string, value: number) => {
-    await supabase.from("topic_buckets").update({ weight: value }).eq("key", key);
+    const { error } = await supabase.from("topic_buckets").update({ weight: value }).eq("key", key);
+    if (error) {
+      Alert.alert("Couldn't save topic weight", "Check your connection and try again.");
+      void reload().catch(() => {});
+    }
   };
 
   // ---- prefs -------------------------------------------------------------
   const togglePref = async <K extends keyof Prefs>(key: K, value: Prefs[K]) => {
     if (!prefs) return;
-    setPrefsState({ ...prefs, [key]: value });
-    await setPref(key, value);
+    const previousValue = prefs[key];
+    setPrefsState(current => current ? { ...current, [key]: value } : current);
+    try {
+      await setPref(key, value);
+    } catch {
+      setPrefsState(current => current ? { ...current, [key]: previousValue } : current);
+      Alert.alert("Couldn't save preference", "Your change was not saved. Check your connection and retry.");
+    }
   };
 
   // ---- sources -------------------------------------------------------------
   const toggleSource = async (id: string, enabled: boolean) => {
     setSources((cur) => cur.map((s) => (s.id === id ? { ...s, enabled } : s)));
-    await supabase.from("sources").update({ enabled }).eq("id", id);
+    const { error } = await supabase.from("sources").update({ enabled }).eq("id", id);
+    if (error) {
+      setSources((cur) => cur.map((s) => (s.id === id ? { ...s, enabled: !enabled } : s)));
+      Alert.alert("Couldn't update source", "Your change was not saved. Check your connection and retry.");
+    }
   };
 
   const removeSource = (id: string, label: string) => {
@@ -78,7 +92,11 @@ export default function SettingsScreen() {
         text: "Remove",
         style: "destructive",
         onPress: async () => {
-          await supabase.from("sources").delete().eq("id", id);
+          const { error } = await supabase.from("sources").delete().eq("id", id);
+          if (error) {
+            Alert.alert("Couldn't remove source", "Nothing was deleted. Check your connection and retry.");
+            return;
+          }
           setSources((cur) => cur.filter((s) => s.id !== id));
         },
       },
