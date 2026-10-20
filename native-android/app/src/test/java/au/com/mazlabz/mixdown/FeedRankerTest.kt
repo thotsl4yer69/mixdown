@@ -8,7 +8,7 @@ class FeedRankerTest {
         id, kind, "Title " + id, "", "", bucket,
         if (kind == "video") "https://example.org/" + id + ".mp4" else "",
         if (kind == "video") "mp4" else "",
-        "", "", emptyList(), "", "2026-10-20T01:00:00Z", .7, .6, .8, false
+        "", "", emptyList(), "", "2026-10-20T01:00:00Z", 0.7, 0.6, 0.8, false
     )
 
     @Test fun noDuplicatesInMixedFeed() {
