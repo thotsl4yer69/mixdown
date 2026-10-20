@@ -1,10 +1,12 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val runtimeConfig = java.util.Properties().apply {
+val runtimeConfig = Properties().apply {
     val file = rootProject.file("mixdown.properties")
     check(file.isFile) { "Missing runtime configuration: mixdown.properties" }
     file.inputStream().use { load(it) }
