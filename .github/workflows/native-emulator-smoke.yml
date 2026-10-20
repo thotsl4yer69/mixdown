@@ -1,0 +1,74 @@
+name: Mixdown Native emulator smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "native-android/**"
+      - ".github/workflows/native-emulator-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  emulator-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - name: Prepare SDK and KVM
+        shell: bash
+        run: |
+          SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" || test -d "$SDK_ROOT/platforms/android-35"
+          sudo chmod 666 /dev/kvm || true
+      - name: Assemble native app for emulator
+        run: gradle --project-dir native-android :app:assembleDebug --no-daemon
+      - name: Start emulator and verify live feed screen
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: google_apis
+          disable-animations: true
+          script: |
+            mkdir -p native-android/smoke-output
+            adb install -r native-android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n au.com.mazlabz.mixdown/.MainActivity
+            sleep 25
+            PID="$(adb shell pidof au.com.mazlabz.mixdown | tr -d '\r')"
+            test -n "$PID" || { echo "Mixdown did not remain running"; exit 1; }
+            echo "Mixdown app alive: PID=$PID"
+            adb shell uiautomator dump /sdcard/window.xml || true
+            adb pull /sdcard/window.xml native-android/smoke-output/window.xml || true
+            adb shell screencap -p /sdcard/mixdown.png
+            adb pull /sdcard/mixdown.png native-android/smoke-output/mixdown-emulator.png
+            adb logcat -d -s AndroidRuntime:E > native-android/smoke-output/crash-log.txt
+            if grep -q 'FATAL EXCEPTION' native-android/smoke-output/crash-log.txt; then
+              cat native-android/smoke-output/crash-log.txt
+              echo 'Fatal Android crash detected'
+              exit 1
+            fi
+            if grep -q 'Nothing to scroll yet' native-android/smoke-output/window.xml; then
+              echo 'Feed failed to display content: inspect emulator screenshot'
+              exit 1
+            fi
+            test -s native-android/smoke-output/mixdown-emulator.png
+      - name: Upload emulator screenshot and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixdown-emulator-smoke
+          path: native-android/smoke-output/
+          if-no-files-found: warn
