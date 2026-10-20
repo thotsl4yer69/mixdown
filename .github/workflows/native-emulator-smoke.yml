@@ -47,14 +47,19 @@ jobs:
             adb install -r native-android/app/build/outputs/apk/debug/app-debug.apk
             adb shell am start -W -n au.com.mazlabz.mixdown/.MainActivity
             sleep 25
+            adb logcat -d > native-android/smoke-output/full-log.txt
+            adb logcat -d -s AndroidRuntime:E > native-android/smoke-output/crash-log.txt
             PID="$(adb shell pidof au.com.mazlabz.mixdown | tr -d '\r')"
-            test -n "$PID" || { echo "Mixdown did not remain running"; exit 1; }
-            echo "Mixdown app alive: PID=$PID"
+            echo "Mixdown PID=$PID"
+            adb shell screencap -p /sdcard/mixdown.png || true
+            adb pull /sdcard/mixdown.png native-android/smoke-output/mixdown-emulator.png || true
             adb shell uiautomator dump /sdcard/window.xml || true
             adb pull /sdcard/window.xml native-android/smoke-output/window.xml || true
-            adb shell screencap -p /sdcard/mixdown.png
-            adb pull /sdcard/mixdown.png native-android/smoke-output/mixdown-emulator.png
-            adb logcat -d -s AndroidRuntime:E > native-android/smoke-output/crash-log.txt
+            if [ -z "$PID" ]; then
+              grep -A 45 -B 8 -E "FATAL EXCEPTION|Process: au.com.mazlabz.mixdown|au.com.mazlabz.mixdown.*Exception" native-android/smoke-output/full-log.txt | tail -n 120 || true
+              echo "Mixdown process crashed or exited during runtime smoke"
+              exit 1
+            fi
             if grep -q 'FATAL EXCEPTION' native-android/smoke-output/crash-log.txt; then
               cat native-android/smoke-output/crash-log.txt
               echo 'Fatal Android crash detected'
