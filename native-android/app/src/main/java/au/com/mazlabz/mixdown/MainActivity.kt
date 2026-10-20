@@ -174,12 +174,12 @@ private class MixdownStore(private val repo: FeedRepository) {
         items.addAll(reordered)
     }
 
-    fun setMuted(next: Boolean) {
+    fun updateMuted(next: Boolean) {
         muted = next
         repo.setMuted(next)
     }
 
-    fun setNsfw(next: Boolean) {
+    fun updateNsfw(next: Boolean) {
         nsfw = next
         repo.setNsfw(next)
         all.clear()
@@ -289,7 +289,7 @@ private fun MixdownScreen(store: MixdownStore) {
                     playbackError = if (index == pagerState.settledPage) playbackError else "",
                     onRead = { reader = item },
                     onOriginal = { openSource(context, item.permalink) },
-                    onMute = { store.setMuted(!store.muted) },
+                    onMute = { store.updateMuted(!store.muted) },
                     muted = store.muted
                 )
             }
@@ -371,7 +371,7 @@ private fun MixdownScreen(store: MixdownStore) {
                 scope.launch { store.reload() }
             },
             onPoolChange = { changed ->
-                store.setNsfw(changed)
+                store.updateNsfw(changed)
                 settingsOpen = false
                 scope.launch { store.reload() }
             }
@@ -539,7 +539,7 @@ private fun SettingsDialog(
                     Text("Start clips muted", color = TextBright, fontWeight = FontWeight.Bold)
                     Text("Tap the music icon to hear a clip", color = TextDim, fontSize = 12.sp)
                 }
-                Switch(checked = store.muted, onCheckedChange = store::setMuted)
+                Switch(checked = store.muted, onCheckedChange = store::updateMuted)
             }
             Spacer(Modifier.height(24.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
