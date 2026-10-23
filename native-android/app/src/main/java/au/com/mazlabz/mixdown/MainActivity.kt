@@ -835,7 +835,7 @@ private fun ReaderDialog(item: FeedItem, onDismiss: () -> Unit, onOriginal: () -
                 Spacer(Modifier.height(14.dp))
                 Text(item.title, fontSize = 29.sp, lineHeight = 35.sp, fontWeight = FontWeight.ExtraBold, color = TextBright)
                 Spacer(Modifier.height(12.dp))
-                Text(item.author, color = TextDim)
+                Text(listOf(item.author, publishedLabel(item.publishedAt))\n                    .filter { it.isNotBlank() }.joinToString("  •  "), color = TextDim)
                 Spacer(Modifier.height(20.dp))
                 if (item.posterUrl.startsWith("https://")) {
                     AsyncImage(model = item.posterUrl, contentDescription = item.title,
