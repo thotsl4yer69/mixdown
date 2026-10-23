@@ -61,9 +61,9 @@ object FeedRanker {
         )
         if (filter != FeedFilter.ALL) return sorted
 
-        val videos = ArrayDeque(sorted.filter { it.playable })
-        val articles = ArrayDeque(sorted.filter { it.kind == "article" })
-        val socials = ArrayDeque(sorted.filter { it.kind == "social" })
+        val videos = ArrayDeque(diversifySources(sorted.filter { it.playable }))
+        val articles = ArrayDeque(diversifySources(sorted.filter { it.kind == "article" }))
+        val socials = ArrayDeque(diversifySources(sorted.filter { it.kind == "social" }))
         // Preserve a mixed feed regardless of the imbalance in ingestion volume.
         val cycle = listOf(videos, articles, videos, socials, videos, articles, videos)
         val result = ArrayList<FeedItem>(sorted.size)
@@ -78,6 +78,29 @@ object FeedRanker {
             if (!progress) break
         }
         return result
+    }
+
+    // Interleave publishers within each content pool while preserving each publisher's ranking.
+    // Remaining items from one source still appear rather than being silently dropped.
+    internal fun diversifySources(items: List<FeedItem>): List<FeedItem> {
+        val pending = items.toMutableList()
+        val output = ArrayList<FeedItem>(pending.size)
+        var previousSource: String? = null
+        while (pending.isNotEmpty()) {
+            val nextIndex = pending.indexOfFirst { sourceKey(it) != previousSource }
+                .let { if (it < 0) 0 else it }
+            val next = pending.removeAt(nextIndex)
+            output.add(next)
+            previousSource = sourceKey(next)
+        }
+        return output
+    }
+
+    private fun sourceKey(item: FeedItem): String {
+        val host = runCatching { java.net.URI(item.permalink).host }
+            .getOrNull()?.lowercase()?.removePrefix("www.")
+        return host?.takeIf { it.isNotBlank() }
+            ?: item.author.ifBlank { item.id }
     }
 
     internal fun score(item: FeedItem, taste: Taste): Double {
