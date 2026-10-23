@@ -4,7 +4,7 @@
 set -euo pipefail
 
 OUTPUT="native-android/smoke-output"
-PACKAGE="au.com.mazlabz.mixdown"
+PACKAGE="au.com.mazlabz.mixdown.beta"
 mkdir -p "$OUTPUT"
 
 capture_diagnostics() {
@@ -20,7 +20,7 @@ capture_diagnostics() {
 trap capture_diagnostics EXIT
 
 adb install -r native-android/app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -W -n "$PACKAGE/.MainActivity"
+adb shell am start -W -n "$PACKAGE/au.com.mazlabz.mixdown.MainActivity"
 
 # A cold emulator may need a few seconds to initialize Compose.
 PID=""
@@ -67,7 +67,7 @@ PY
   read -r TAP_X TAP_Y <<< "$TAP"
   adb shell input tap "$TAP_X" "$TAP_Y"
   sleep 3
-  adb shell am start -W -n "$PACKAGE/.MainActivity"
+  adb shell am start -W -n "$PACKAGE/au.com.mazlabz.mixdown.MainActivity"
   sleep 5
   capture_diagnostics
 fi
@@ -85,6 +85,18 @@ if ! grep -Fq 'text="MIX"' "$OUTPUT/window.xml" || ! grep -Fq 'text="DOWN"' "$OU
 fi
 if grep -Fq 'Nothing to scroll yet' "$OUTPUT/window.xml"; then
   echo "::error::Native UI loads, but the real Supabase-backed scroll feed is empty"
+  exit 1
+fi
+if ! grep -Fq 'text="Videos"' "$OUTPUT/window.xml" || ! grep -Fq 'text="Headlines"' "$OUTPUT/window.xml"; then
+  echo "::error::Expected For you / Videos / Headlines navigation is missing"
+  exit 1
+fi
+if grep -Fq 'text="Social"' "$OUTPUT/window.xml"; then
+  echo "::error::Stale Social category is still exposed as a main tab"
+  exit 1
+fi
+if ! grep -Eq 'Published [0-9]+ [A-Za-z]+ 20[0-9]{2}' "$OUTPUT/window.xml"; then
+  echo "::error::The publication date must include the full year"
   exit 1
 fi
 if ! test -s "$OUTPUT/mixdown-emulator.png"; then
@@ -136,7 +148,7 @@ tap_accessible "Close saved library"
 
 # The saved item must survive a full process restart, not just Compose state.
 adb shell am force-stop "$PACKAGE"
-adb shell am start -W -n "$PACKAGE/.MainActivity"
+adb shell am start -W -n "$PACKAGE/au.com.mazlabz.mixdown.MainActivity"
 sleep 6
 tap_accessible "Open saved library"
 adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
@@ -146,6 +158,40 @@ if grep -Fq 'Nothing saved yet' "$OUTPUT/window.xml"; then
   exit 1
 fi
 tap_accessible "Close saved library"
+
+# The Headlines tab must offer actual readable articles.
+tap_text() {
+  local label="$1"
+  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+  adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
+  local tap
+  tap="$(python3 - "$OUTPUT/window.xml" "$label" <<'PY'
+import re, sys
+from xml.etree import ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    if node.get("text", "") == sys.argv[2]:
+        nums = [int(n) for n in re.findall(r"\d+", node.get("bounds", ""))]
+        if len(nums) == 4:
+            print((nums[0] + nums[2]) // 2, (nums[1] + nums[3]) // 2)
+            break
+else:
+    raise SystemExit("Missing text control: " + sys.argv[2])
+PY
+)"
+  local x y
+  read -r x y <<< "$tap"
+  adb shell input tap "$x" "$y"
+  sleep 2
+}
+
+tap_text "Headlines"
+adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
+if ! grep -Fq 'READ STORY' "$OUTPUT/window.xml"; then
+  echo "::error::Headlines tab does not show a readable story"
+  exit 1
+fi
 capture_diagnostics
 
 echo "Mixdown installed-app smoke passed: live feed, bookmark, restart persistence and accessible controls."

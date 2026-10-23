@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="Mixdown"
+        android:label="Mixdown Beta"
         android:icon="@drawable/ic_mixdown"
         android:roundIcon="@drawable/ic_mixdown"
         android:theme="@android:style/Theme.Material.NoActionBar"
@@ -10,7 +10,7 @@
         android:allowBackup="false"
         android:supportsRtl="true">
         <activity
-            android:name=".MainActivity"
+            android:name="au.com.mazlabz.mixdown.MainActivity"
             android:exported="true"
             android:screenOrientation="unspecified"
             android:configChanges="orientation|screenSize|uiMode|keyboardHidden">

@@ -12,6 +12,13 @@ class FeedRankerTest {
         "", "", emptyList(), "", "2026-10-20T01:00:00Z", 0.7, 0.6, 0.8, false
     )
 
+    @Test fun rssMetadataIsReadableNotXml() {
+        assertEquals("Tom Warren", FeedText.plain("<name>Tom Warren</name>"))
+        assertEquals("Rock & Roll", FeedText.plain("Rock &amp; Roll"))
+        assertEquals("Tom Warren", FeedText.plain("&lt;name&gt;Tom Warren&lt;/name&gt;"))
+        assertEquals("Xbox's news", FeedText.plain("Xbox&#39;s news"))
+    }
+
     @Test fun noDuplicatesInMixedFeed() {
         val items = listOf(item("v1", "video"), item("v1", "video"), item("a1", "article"))
         assertEquals(2, FeedRanker.rank(items, Taste(), FeedFilter.ALL).size)
@@ -38,9 +45,26 @@ class FeedRankerTest {
         assertEquals("tech", FeedRanker.rank(listOf(play, tech), taste, FeedFilter.ARTICLES).first().id)
     }
 
-    @Test fun nsfwFilteringHappensUpstreamAndItemsRemainDistinct() {
-        assertTrue(FeedFilter.SOCIAL.accepts(item("s", "social")))
-        assertFalse(FeedFilter.SOCIAL.accepts(item("a", "article")))
+    @Test fun theMainFeedContainsOnlyPlayableVideosAndReadableArticles() {
+        assertFalse(FeedFilter.ALL.accepts(item("s", "social")))
+        assertFalse(FeedFilter.ALL.accepts(item("v", "video").copy(mediaUrl = "")))
+        assertTrue(FeedFilter.ALL.accepts(item("v", "video")))
+        assertTrue(FeedFilter.ARTICLES.accepts(item("a", "article")))
+        assertFalse(FeedFilter.ARTICLES.accepts(item("v", "video")))
+        assertEquals(listOf("For you", "Videos", "Headlines"),
+            FeedFilter.entries.map { it.title })
+    }
+
+    @Test fun publicationDateWinsOverRecentIngestionForArticles() {
+        val archive = item("old", "article").copy(
+            publishedAt = "2020-10-08T20:50:55Z",
+            ingestedAt = "2026-10-23T18:30:08Z")
+        val actualRecent = item("fresh", "article").copy(
+            publishedAt = "2026-10-23T20:50:55Z",
+            ingestedAt = "2026-10-20T18:30:08Z")
+        val ranked = FeedRanker.rank(listOf(archive, actualRecent),
+            Taste(), FeedFilter.ARTICLES)
+        assertEquals("fresh", ranked.first().id)
     }
     @Test fun socialFreshnessIsExplicitlyBounded() {
         val now = Instant.parse("2026-10-24T00:00:00Z")
