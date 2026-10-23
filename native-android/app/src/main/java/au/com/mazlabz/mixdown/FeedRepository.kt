@@ -10,6 +10,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 class FeedRepository(context: Context) {
     private val storage = context.getSharedPreferences("mixdown_2", Context.MODE_PRIVATE)
@@ -116,6 +118,7 @@ class FeedRepository(context: Context) {
 
     suspend fun fetch(kind: String, offset: Int, limit: Int = 45): List<FeedItem> =
         withContext(Dispatchers.IO) {
+            val cutoff = Instant.now().minus(30, ChronoUnit.DAYS)
             val endpoint = Uri.parse(BuildConfig.SUPABASE_URL + "/rest/v1/items")
                 .buildUpon()
                 .appendQueryParameter(
@@ -125,11 +128,13 @@ class FeedRepository(context: Context) {
                 )
                 .appendQueryParameter("is_nsfw", "eq." + nsfw)
                 .appendQueryParameter("kind", "eq." + kind)
-                .appendQueryParameter("order", "ingested_at.desc")
+                // A newly ingested archive item is not recent content.
+                .appendQueryParameter("published_at", "gte." + cutoff.toString())
+                .appendQueryParameter("order", "published_at.desc")
                 .appendQueryParameter("limit", limit.toString())
                 .appendQueryParameter("offset", offset.toString())
                 .build()
-            val cacheKey = "cache_" + nsfw + "_" + kind
+            val cacheKey = "cache_published_v3_" + nsfw + "_" + kind
             var fetchedOnline = false
             val body = try {
                 val conn = URL(endpoint.toString()).openConnection() as HttpURLConnection
@@ -162,7 +167,15 @@ class FeedRepository(context: Context) {
             }
             (0 until parsed.length()).mapNotNull { index ->
                 parsed.optJSONObject(index)?.toItem()
-            }.filter { it.isNsfw == nsfw }
+            }.filter { item ->
+                item.isNsfw == nsfw &&
+                    (kind != "video" || item.playable) &&
+                    runCatching {
+                        val published = Instant.parse(item.publishedAt)
+                        !published.isBefore(cutoff) &&
+                            !published.isAfter(Instant.now().plus(1, ChronoUnit.DAYS))
+                    }.getOrDefault(false)
+            }
         }
 
     private fun JSONObject.toItem(): FeedItem {
