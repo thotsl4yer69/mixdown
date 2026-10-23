@@ -2,6 +2,7 @@ package au.com.mazlabz.mixdown
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.Instant
 
 class FeedRankerTest {
     private fun item(id: String, kind: String, bucket: String = "entertainment") = FeedItem(
@@ -41,6 +42,15 @@ class FeedRankerTest {
         assertTrue(FeedFilter.SOCIAL.accepts(item("s", "social")))
         assertFalse(FeedFilter.SOCIAL.accepts(item("a", "article")))
     }
+    @Test fun socialFreshnessIsExplicitlyBounded() {
+        val now = Instant.parse("2026-10-24T00:00:00Z")
+        val recent = item("recent", "social").copy(ingestedAt = "2026-10-23T00:00:00Z")
+        val stale = item("stale", "social").copy(ingestedAt = "2026-09-30T00:00:00Z")
+        assertTrue(FeedRanker.isFreshSocial(recent, now))
+        assertFalse(FeedRanker.isFreshSocial(stale, now))
+        assertFalse(FeedRanker.isFreshSocial(stale.copy(ingestedAt = "not-a-date"), now))
+    }
+
     @Test fun alternatePublishersWhenPossible() {
         val input = listOf(
             item("one", "article").copy(permalink = "https://alpha.test/one"),
