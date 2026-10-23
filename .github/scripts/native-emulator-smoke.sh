@@ -56,7 +56,7 @@ from xml.etree import ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
 for node in root.iter("node"):
     if node.get("resource-id") == "android:id/aerr_close":
-        nums = [int(x) for x in re.findall(r"\\d+", node.get("bounds", ""))]
+        nums = [int(x) for x in re.findall(r"\d+", node.get("bounds", ""))]
         if len(nums) == 4:
             print((nums[0] + nums[2]) // 2, (nums[1] + nums[3]) // 2)
             break
