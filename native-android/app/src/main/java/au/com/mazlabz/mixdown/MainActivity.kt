@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
 private class MixdownStore(private val repo: FeedRepository) {
     val items: SnapshotStateList<FeedItem> = mutableStateListOf()
     private val all = mutableListOf<FeedItem>()
-    private val offsets = mutableMapOf("video" to 0, "article" to 0, "social" to 0)
+    private val offsets = mutableMapOf("video" to 0, "article" to 0)
 
     var loading by mutableStateOf(false)
         private set
@@ -117,9 +117,9 @@ private class MixdownStore(private val repo: FeedRepository) {
                 exhausted = false
             }
             val batches = coroutineScope {
-                listOf("video", "article", "social").map { kind ->
+                listOf("video", "article").map { kind ->
                     async {
-                        val batch = runCatching { repo.fetch(kind, offsets[kind] ?: 0) }
+                        val batch = runCatching { repo.fetch(kind, if (reset) 0 else (offsets[kind] ?: 0)) }
                         kind to batch
                     }
                 }.awaitAll()
@@ -322,7 +322,16 @@ private fun MixdownScreen(store: MixdownStore) {
                 key = { index -> store.items[index].id }
             ) { index ->
                 val item = store.items[index]
-                FeedPage(
+                if (item.kind == "article") {
+                    HeadlinePage(
+                        item = item,
+                        saved = store.saved.any { it.id == item.id },
+                        onRead = { reader = item },
+                        onOriginal = { openSource(context, item.permalink) },
+                        onShare = { shareSource(context, item) },
+                        onSave = { store.toggleSaved(item) }
+                    )
+                } else FeedPage(
                     item = item,
                     player = player,
                     active = index == pagerState.settledPage,
@@ -369,7 +378,7 @@ private fun MixdownScreen(store: MixdownStore) {
                 Spacer(Modifier.weight(1f))
                 Box(Modifier.size(8.dp).background(Mint, CircleShape))
                 Spacer(Modifier.width(8.dp))
-                Text("LIVE MIX", fontSize = 10.sp, color = Mint, letterSpacing = 1.sp)
+                Text("DISCOVER", fontSize = 10.sp, color = Mint, letterSpacing = 1.sp)
                 Spacer(Modifier.width(14.dp))
                 Text("★", modifier = Modifier.semantics { contentDescription = "Open saved library" }
                     .clickable { savedOpen = true }.padding(8.dp),
@@ -515,8 +524,7 @@ private fun FeedPage(
         ) {
             val marker = when (item.kind) {
                 "video" -> "WATCH / " + item.bucket.uppercase().replace("-", " ")
-                "social" -> "SOCIAL / " + item.bucket.uppercase().replace("-", " ")
-                else -> "READ / " + item.bucket.uppercase().replace("-", " ")
+                else -> "STORY / " + item.bucket.uppercase().replace("-", " ")
             }
             Text(marker, fontSize = 11.sp, color = Mint, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
             Spacer(Modifier.height(13.dp))
@@ -535,7 +543,7 @@ private fun FeedPage(
                     maxLines = 4, overflow = TextOverflow.Ellipsis, color = TextDim)
             }
             Spacer(Modifier.height(14.dp))
-            Text(listOf(item.author, timestampLabel(item.publishedAt))
+            Text(listOf(item.author, publishedLabel(item.publishedAt))
                 .filter { it.isNotBlank() }.joinToString("  •  "),
                 color = TextDim, fontSize = 12.sp, maxLines = 1)
             Spacer(Modifier.height(18.dp))
@@ -562,6 +570,96 @@ private fun FeedPage(
             RoundAction("↗", "SHARE", onShare)
             RoundAction("↗", "SOURCE", onOriginal)
             if (item.kind != "video") RoundAction("≡", "READ", onRead)
+        }
+    }
+}
+
+/**
+ * Articles are not videos. Give written stories a readable editorial card
+ * with an obvious "Read story" action instead of a video player backdrop.
+ */
+@Composable
+private fun HeadlinePage(
+    item: FeedItem,
+    saved: Boolean,
+    onRead: () -> Unit,
+    onOriginal: () -> Unit,
+    onShare: () -> Unit,
+    onSave: () -> Unit
+) {
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(
+                listOf(Ink, Color(0xFF19222C), Color(0xFF13151C), Ink)
+            )
+        )
+    ) {
+        Column(
+            Modifier.fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(start = 24.dp, end = 24.dp, top = 94.dp, bottom = 86.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("STORY / " + item.bucket.replace("-", " ").uppercase(),
+                color = Mint, fontWeight = FontWeight.Bold,
+                fontSize = 11.sp, letterSpacing = 1.4.sp)
+            if (item.posterUrl.startsWith("https://")) {
+                AsyncImage(
+                    model = item.posterUrl,
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().weight(0.38f)
+                        .clip(RoundedCornerShape(18.dp))
+                )
+            } else {
+                Spacer(Modifier.height(12.dp))
+            }
+            Text(
+                item.title.ifBlank { "Untitled story" },
+                color = TextBright,
+                fontSize = 27.sp,
+                lineHeight = 31.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                listOf(item.author, publishedLabel(item.publishedAt))
+                    .filter { it.isNotBlank() }.joinToString("  •  "),
+                color = Mint, fontSize = 12.sp, maxLines = 2
+            )
+            if (item.excerpt.isNotBlank()) {
+                Text(
+                    item.excerpt,
+                    color = TextDim, fontSize = 15.sp, lineHeight = 21.sp,
+                    maxLines = 4, overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Button(
+                onClick = onRead,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) {
+                Text("READ STORY", color = Ink, fontWeight = FontWeight.Bold)
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(if (saved) "★ SAVED" else "☆ SAVE",
+                    modifier = Modifier.semantics { contentDescription = "SAVE" }
+                        .clickable { onSave() }.padding(8.dp),
+                    color = if (saved) Mint else TextBright, fontSize = 12.sp)
+                Text("↗ SHARE",
+                    modifier = Modifier.clickable { onShare() }.padding(8.dp),
+                    color = TextBright, fontSize = 12.sp)
+                Text("SOURCE ↗",
+                    modifier = Modifier.clickable { onOriginal() }.padding(8.dp),
+                    color = TextBright, fontSize = 12.sp)
+            }
         }
     }
 }
@@ -764,10 +862,11 @@ private fun ReaderDialog(item: FeedItem, onDismiss: () -> Unit, onOriginal: () -
     }
 }
 
-private fun timestampLabel(iso: String): String = runCatching {
-    DateTimeFormatter.ofPattern("d MMM").withZone(ZoneId.of("Australia/Melbourne"))
+private fun publishedLabel(iso: String): String = runCatching {
+    "Published " + DateTimeFormatter.ofPattern("d MMM yyyy")
+        .withZone(ZoneId.of("Australia/Melbourne"))
         .format(Instant.parse(iso))
-}.getOrDefault("")
+}.getOrDefault("Publication date unknown")
 
 private fun shareSource(context: android.content.Context, item: FeedItem) {
     val uri = runCatching { Uri.parse(item.permalink) }.getOrNull() ?: return
