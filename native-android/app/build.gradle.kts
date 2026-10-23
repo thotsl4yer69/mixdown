@@ -31,6 +31,12 @@ android {
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", quoted(publishableKey))
     }
     buildTypes {
+        debug {
+            // CI debug keystores are ephemeral; install the new user-test build
+            // beside 2.1 rather than forcing an uninstall and losing local saves.
+            applicationIdSuffix = ".beta"
+            versionNameSuffix = "-beta"
+        }
         release {
             isMinifyEnabled = false
         }
