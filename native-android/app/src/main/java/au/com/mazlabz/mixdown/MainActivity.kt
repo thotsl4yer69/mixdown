@@ -27,6 +27,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,6 +43,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.VideoSize
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -97,6 +100,8 @@ private class MixdownStore(private val repo: FeedRepository) {
         private set
     var exhausted by mutableStateOf(false)
         private set
+    var saved by mutableStateOf(repo.savedItems())
+        private set
 
     suspend fun reload() = load(reset = true)
     suspend fun more() = load(reset = false)
@@ -106,10 +111,9 @@ private class MixdownStore(private val repo: FeedRepository) {
         loading = true
         error = ""
         try {
+            // Retain the visible feed until new content is ready. A transient
+            // network failure should never blank the user's scrolling session.
             if (reset) {
-                offsets.keys.forEach { offsets[it] = 0 }
-                all.clear()
-                items.clear()
                 exhausted = false
             }
             val batches = coroutineScope {
@@ -124,22 +128,38 @@ private class MixdownStore(private val repo: FeedRepository) {
             val added = ArrayList<FeedItem>()
             for ((kind, result) in batches) {
                 result.onSuccess { chunk ->
-                    offsets[kind] = (offsets[kind] ?: 0) + chunk.size
+                    // Reset uses the first page of each pool. Pagination advances
+                    // only for pools whose requests actually succeeded.
+                    offsets[kind] = (if (reset) 0 else offsets[kind] ?: 0) + chunk.size
                     added.addAll(chunk)
                 }.onFailure { errors++ }
             }
-            val existing = all.mapTo(HashSet()) { it.id }
             val seen = repo.seenIds()
+            val existing = if (reset) emptySet() else all.mapTo(HashSet()) { it.id }
             val newItems = added.filter { it.id !in existing && it.id !in seen }
-            all.addAll(newItems)
-            val ranked = FeedRanker.rank(if (reset) all else newItems, taste, filter)
+                .distinctBy { it.id }
             if (reset) {
-                items.clear()
-                items.addAll(ranked)
+                if (errors < batches.size && newItems.isNotEmpty()) {
+                    // Only switch the visible list after a usable replacement
+                    // arrives. Avoid blanking the screen for seen-only or failed refreshes.
+                    all.clear()
+                    all.addAll(newItems)
+                    items.clear()
+                    items.addAll(FeedRanker.rank(all, taste, filter))
+                } else if (items.isNotEmpty()) {
+                    error = if (errors == batches.size) {
+                        "Couldn't refresh. Your previous mix is still available."
+                    } else {
+                        "No unseen posts in the latest batch. Keeping your mix."
+                    }
+                }
             } else {
-                items.addAll(ranked.filter { next -> items.none { it.id == next.id } })
+                all.addAll(newItems)
+                val ranked = FeedRanker.rank(newItems, taste, filter)
+                val displayed = items.mapTo(HashSet()) { it.id }
+                items.addAll(ranked.filter { it.id !in displayed })
             }
-            if (added.isEmpty()) exhausted = true
+            if (added.isEmpty() && errors == 0) exhausted = true
             if (items.isEmpty()) {
                 error = if (errors == batches.size) {
                     "Could not reach the feed. Check your connection and try again."
@@ -182,6 +202,7 @@ private class MixdownStore(private val repo: FeedRepository) {
     fun updateNsfw(next: Boolean) {
         nsfw = next
         repo.setNsfw(next)
+        saved = repo.savedItems()
         all.clear()
         items.clear()
         offsets.keys.forEach { offsets[it] = 0 }
@@ -189,6 +210,10 @@ private class MixdownStore(private val repo: FeedRepository) {
     }
 
     fun markViewed(id: String) = repo.recordViewed(id)
+
+    fun toggleSaved(item: FeedItem) {
+        saved = repo.toggleSaved(item)
+    }
 
     fun resetHistory() {
         repo.clearHistory()
@@ -204,8 +229,10 @@ private fun MixdownScreen(store: MixdownStore) {
     val pagerState = rememberPagerState(pageCount = { store.items.size })
     val player = remember(context) { ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ONE } }
     var settingsOpen by remember { mutableStateOf(false) }
+    var savedOpen by remember { mutableStateOf(false) }
     var reader by remember { mutableStateOf<FeedItem?>(null) }
     var playbackError by remember { mutableStateOf("") }
+    var videoAspect by remember { mutableFloatStateOf(1f) }
     val active = store.items.getOrNull(pagerState.settledPage)
 
     LaunchedEffect(Unit) { store.reload() }
@@ -225,11 +252,16 @@ private fun MixdownScreen(store: MixdownStore) {
         }
     }
 
-    LaunchedEffect(active?.id, store.muted) {
+    LaunchedEffect(store.muted) {
+        // Muting never re-prepares the current video or loses playback position.
+        player.volume = if (store.muted) 0f else 1f
+    }
+
+    LaunchedEffect(active?.id) {
         player.pause()
         player.clearMediaItems()
         playbackError = ""
-        player.volume = if (store.muted) 0f else 1f
+        videoAspect = 1f
         if (active?.playable == true) {
             val media = MediaItem.Builder().setUri(active.mediaUrl)
                 .apply {
@@ -246,6 +278,14 @@ private fun MixdownScreen(store: MixdownStore) {
             override fun onPlayerError(error: PlaybackException) {
                 playbackError = "This clip couldn't play. Open the original to view it."
             }
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                val width = videoSize.width
+                val height = videoSize.height
+                if (width > 0 && height > 0) {
+                    videoAspect = (width * videoSize.pixelWidthHeightRatio / height)
+                        .coerceIn(0.35f, 3.0f)
+                }
+            }
         }
         player.addListener(listener)
         onDispose {
@@ -259,7 +299,7 @@ private fun MixdownScreen(store: MixdownStore) {
             when (event) {
                 Lifecycle.Event.ON_STOP -> player.pause()
                 Lifecycle.Event.ON_START -> {
-                    if (player.mediaItemCount > 0 && reader == null && !settingsOpen) player.play()
+                    if (player.mediaItemCount > 0 && reader == null && !settingsOpen && !savedOpen) player.play()
                 }
                 else -> Unit
             }
@@ -268,8 +308,8 @@ private fun MixdownScreen(store: MixdownStore) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(reader, settingsOpen) {
-        if (reader != null || settingsOpen) player.pause()
+    LaunchedEffect(reader, settingsOpen, savedOpen) {
+        if (reader != null || settingsOpen || savedOpen) player.pause()
         else if (active?.playable == true) player.play()
     }
 
@@ -286,9 +326,13 @@ private fun MixdownScreen(store: MixdownStore) {
                     item = item,
                     player = player,
                     active = index == pagerState.settledPage,
+                    videoAspect = videoAspect,
                     playbackError = if (index == pagerState.settledPage) playbackError else "",
                     onRead = { reader = item },
                     onOriginal = { openSource(context, item.permalink) },
+                    onShare = { shareSource(context, item) },
+                    onSave = { store.toggleSaved(item) },
+                    saved = store.saved.any { it.id == item.id },
                     onMute = { store.updateMuted(!store.muted) },
                     muted = store.muted
                 )
@@ -327,9 +371,14 @@ private fun MixdownScreen(store: MixdownStore) {
                 Spacer(Modifier.width(8.dp))
                 Text("LIVE MIX", fontSize = 10.sp, color = Mint, letterSpacing = 1.sp)
                 Spacer(Modifier.width(14.dp))
-                Text("↻", modifier = Modifier.clickable { scope.launch { store.reload() } }.padding(8.dp),
+                Text("★", modifier = Modifier.semantics { contentDescription = "Open saved library" }
+                    .clickable { savedOpen = true }.padding(8.dp),
+                    fontSize = 23.sp, color = Mint)
+                Text("↻", modifier = Modifier.semantics { contentDescription = "Refresh feed" }
+                    .clickable { scope.launch { store.reload() } }.padding(8.dp),
                     fontSize = 28.sp, color = TextBright)
-                Text("⚙", modifier = Modifier.clickable { settingsOpen = true }.padding(8.dp),
+                Text("⚙", modifier = Modifier.semantics { contentDescription = "Open settings" }
+                    .clickable { settingsOpen = true }.padding(8.dp),
                     fontSize = 25.sp, color = TextBright)
             }
             if (store.error.isNotBlank() && store.items.isNotEmpty()) {
@@ -361,6 +410,18 @@ private fun MixdownScreen(store: MixdownStore) {
         }
     }
 
+    if (savedOpen) {
+        SavedDialog(
+            saved = store.saved,
+            onDismiss = { savedOpen = false },
+            onOpen = { item ->
+                savedOpen = false
+                if (item.kind == "video") openSource(context, item.permalink)
+                else reader = item
+            },
+            onRemove = { store.toggleSaved(it) }
+        )
+    }
     if (settingsOpen) {
         SettingsDialog(
             store = store,
@@ -387,36 +448,56 @@ private fun FeedPage(
     item: FeedItem,
     player: ExoPlayer,
     active: Boolean,
+    videoAspect: Float,
     playbackError: String,
     onRead: () -> Unit,
     onOriginal: () -> Unit,
+    onShare: () -> Unit,
+    onSave: () -> Unit,
+    saved: Boolean,
     onMute: () -> Unit,
     muted: Boolean
 ) {
     Box(Modifier.fillMaxSize().background(Ink)) {
+        // Image underlay makes wide clips feel intentional instead of leaving
+        // a giant empty black stage above and below the player.
+        if (item.posterUrl.startsWith("https://")) {
+            AsyncImage(
+                model = item.posterUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(Modifier.fillMaxSize().background(Color(0x99080A0E)))
+        } else {
+            Box(Modifier.fillMaxSize().background(
+                Brush.linearGradient(listOf(Color(0xFF252C36), Ink))
+            ))
+        }
+
         if (item.playable && active) {
+            val landscape = videoAspect > 1.15f
             AndroidView(
                 factory = { context ->
                     PlayerView(context).apply {
                         this.player = player
                         useController = false
+                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     }
                 },
-                update = { it.player = player },
-                modifier = Modifier.fillMaxSize()
+                update = { view ->
+                    view.player = player
+                    view.resizeMode = if (landscape)
+                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    else
+                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                },
+                modifier = if (landscape)
+                    Modifier.fillMaxWidth().aspectRatio(videoAspect).align(Alignment.Center)
+                else
+                    Modifier.fillMaxSize()
             )
-        } else if (item.posterUrl.startsWith("https://")) {
-            AsyncImage(
-                model = item.posterUrl,
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Box(Modifier.fillMaxSize().background(
-                Brush.linearGradient(listOf(Color(0xFF252C36), Ink))
-            ))
         }
 
         Box(Modifier.fillMaxSize().background(
@@ -477,6 +558,8 @@ private fun FeedPage(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             if (item.playable) RoundAction(if (muted) "♪̸" else "♫", if (muted) "UNMUTE" else "MUTE", onMute)
+            RoundAction(if (saved) "★" else "☆", if (saved) "SAVED" else "SAVE", onSave)
+            RoundAction("↗", "SHARE", onShare)
             RoundAction("↗", "SOURCE", onOriginal)
             if (item.kind != "video") RoundAction("≡", "READ", onRead)
         }
@@ -487,7 +570,8 @@ private fun FeedPage(
 private fun RoundAction(symbol: String, label: String, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier.semantics { contentDescription = label }
+            .clickable(onClick = onClick)
     ) {
         Box(Modifier.size(46.dp).clip(CircleShape).background(Color(0xCC252A32)),
             contentAlignment = Alignment.Center) {
@@ -562,6 +646,66 @@ private fun SettingsDialog(
     }
 }
 
+
+@Composable
+private fun SavedDialog(
+    saved: List<FeedItem>,
+    onDismiss: () -> Unit,
+    onOpen: (FeedItem) -> Unit,
+    onRemove: (FeedItem) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxSize().background(Ink).statusBarsPadding().navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("SAVED / MIXDOWN", color = TextBright, fontSize = 22.sp,
+                    fontWeight = FontWeight.Black)
+                Spacer(Modifier.weight(1f))
+                Text("✕", modifier = Modifier.semantics { contentDescription = "Close saved library" }
+                    .clickable { onDismiss() }.padding(10.dp),
+                    color = TextBright, fontSize = 22.sp)
+            }
+            Text("Your library stays on this phone, including offline reading.",
+                color = TextDim, fontSize = 12.sp)
+            Spacer(Modifier.height(18.dp))
+            if (saved.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Nothing saved yet. Tap ☆ on any post to keep it here.",
+                        color = TextDim, textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(saved, key = { it.id }) { item ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
+                                .background(Panel).padding(15.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                Modifier.weight(1f).clickable { onOpen(item) },
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(item.kind.uppercase(), fontSize = 10.sp,
+                                    color = Mint, fontWeight = FontWeight.Bold)
+                                Text(item.title, color = TextBright, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                Text(item.author.ifBlank { "OPEN ITEM →" }, color = TextDim,
+                                    maxLines = 1, fontSize = 11.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text("✕", modifier = Modifier.semantics { contentDescription = "Remove saved item" }
+                                .clickable { onRemove(item) }.padding(9.dp), fontSize = 20.sp, color = Accent)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun TasteSlider(name: String, value: Float, onChange: (Float) -> Unit) {
     Row {
@@ -624,6 +768,16 @@ private fun timestampLabel(iso: String): String = runCatching {
     DateTimeFormatter.ofPattern("d MMM").withZone(ZoneId.of("Australia/Melbourne"))
         .format(Instant.parse(iso))
 }.getOrDefault("")
+
+private fun shareSource(context: android.content.Context, item: FeedItem) {
+    val uri = runCatching { Uri.parse(item.permalink) }.getOrNull() ?: return
+    if (uri.scheme != "https" && uri.scheme != "http") return
+    val share = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, item.title + "\n" + item.permalink)
+    }
+    runCatching { context.startActivity(Intent.createChooser(share, "Share from Mixdown")) }
+}
 
 private fun openSource(context: android.content.Context, url: String) {
     val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return

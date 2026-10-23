@@ -1,16 +1,8 @@
-name: Android APK build
+name: Legacy Expo APK (manual only)
 
+# The supported Mixdown release is native-android/. The Expo build is
+# retained as a manual legacy fallback, not an automatic PR/release gate.
 on:
-  pull_request:
-  release:
-    types:
-      - published
-  push:
-    branches:
-      - main
-      - master
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:

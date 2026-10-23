@@ -67,6 +67,53 @@ class FeedRepository(context: Context) {
         storage.edit().remove("seen_" + nsfw).apply()
     }
 
+    /**
+     * Bookmarks are local to the device and to the selected content pool.
+     * Store sufficient content to reopen saved reading even when offline.
+     */
+    fun savedItems(): List<FeedItem> = runCatching {
+        val saved = JSONArray(storage.getString("bookmarks_" + nsfw, "[]") ?: "[]")
+        (0 until saved.length()).mapNotNull { index ->
+            saved.optJSONObject(index)?.toItem()
+        }.filter { it.id.isNotBlank() && it.isNsfw == nsfw }
+    }.getOrDefault(emptyList())
+
+    fun toggleSaved(item: FeedItem): List<FeedItem> {
+        require(item.isNsfw == nsfw) { "Cannot save content from another pool" }
+        val updated = savedItems().toMutableList()
+        val current = updated.indexOfFirst { it.id == item.id }
+        if (current >= 0) updated.removeAt(current) else updated.add(0, item)
+        val retained = updated.take(80)
+        val json = JSONArray()
+        retained.forEach { saved -> json.put(saved.toBookmarkJson()) }
+        storage.edit().putString("bookmarks_" + nsfw, json.toString()).apply()
+        return retained
+    }
+
+    private fun FeedItem.toBookmarkJson(): JSONObject = JSONObject().apply {
+        put("id", id)
+        put("kind", kind)
+        put("title", title)
+        put("author", author)
+        put("permalink", permalink)
+        put("bucket", bucket)
+        put("media_url", mediaUrl)
+        put("media_kind", mediaKind)
+        put("poster_url", posterUrl)
+        put("excerpt", excerpt)
+        put("published_at", publishedAt)
+        put("ingested_at", ingestedAt)
+        put("quality_score", quality)
+        put("visual_score", visual)
+        put("engagement_score", engagement)
+        put("is_nsfw", isNsfw)
+        val blocks = JSONArray()
+        body.take(24).forEach { paragraph ->
+            blocks.put(JSONObject().put("t", "p").put("text", paragraph.take(1600)))
+        }
+        put("body", blocks)
+    }
+
     suspend fun fetch(kind: String, offset: Int, limit: Int = 45): List<FeedItem> =
         withContext(Dispatchers.IO) {
             val endpoint = Uri.parse(BuildConfig.SUPABASE_URL + "/rest/v1/items")

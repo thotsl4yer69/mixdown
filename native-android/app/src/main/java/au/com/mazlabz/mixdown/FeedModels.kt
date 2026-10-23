@@ -61,9 +61,9 @@ object FeedRanker {
         )
         if (filter != FeedFilter.ALL) return sorted
 
-        val videos = ArrayDeque(sorted.filter { it.playable })
-        val articles = ArrayDeque(sorted.filter { it.kind == "article" })
-        val socials = ArrayDeque(sorted.filter { it.kind == "social" })
+        val videos = ArrayDeque(diversifySources(sorted.filter { it.playable }))
+        val articles = ArrayDeque(diversifySources(sorted.filter { it.kind == "article" }))
+        val socials = ArrayDeque(diversifySources(sorted.filter { it.kind == "social" && isFreshSocial(it) }))
         // Preserve a mixed feed regardless of the imbalance in ingestion volume.
         val cycle = listOf(videos, articles, videos, socials, videos, articles, videos)
         val result = ArrayList<FeedItem>(sorted.size)
@@ -80,6 +80,37 @@ object FeedRanker {
         return result
     }
 
+    // Do not interleave weeks-old community posts into a supposedly current
+    // For You feed. The dedicated Social tab still exposes the full archive.
+    internal fun isFreshSocial(item: FeedItem, now: Instant = Instant.now()): Boolean =
+        runCatching {
+            val age = java.time.Duration.between(Instant.parse(item.ingestedAt), now)
+            !age.isNegative && age.toDays() < 14
+        }.getOrDefault(false)
+
+    // Interleave publishers within each content pool while preserving each publisher's ranking.
+    // Remaining items from one source still appear rather than being silently dropped.
+    internal fun diversifySources(items: List<FeedItem>): List<FeedItem> {
+        val pending = items.toMutableList()
+        val output = ArrayList<FeedItem>(pending.size)
+        var previousSource: String? = null
+        while (pending.isNotEmpty()) {
+            val nextIndex = pending.indexOfFirst { sourceKey(it) != previousSource }
+                .let { if (it < 0) 0 else it }
+            val next = pending.removeAt(nextIndex)
+            output.add(next)
+            previousSource = sourceKey(next)
+        }
+        return output
+    }
+
+    private fun sourceKey(item: FeedItem): String {
+        val host = runCatching { java.net.URI(item.permalink).host }
+            .getOrNull()?.lowercase()?.removePrefix("www.")
+        return host?.takeIf { it.isNotBlank() }
+            ?: item.author.ifBlank { item.id }
+    }
+
     internal fun score(item: FeedItem, taste: Taste): Double {
         val videoBoost = if (item.playable) taste.shorts.toDouble() * 0.90 else 0.0
         val topicBoost = taste.weight(item) * 1.25
@@ -89,7 +120,8 @@ object FeedRanker {
         val ageHours = runCatching {
             (System.currentTimeMillis() - Instant.parse(item.ingestedAt).toEpochMilli()) / 3600000.0
         }.getOrDefault(72.0)
-        val fresh = 0.25 / (1.0 + max(0.0, ageHours) / 36.0)
+        // A daily feed should reward genuinely new discoveries, not just historic popularity.
+        val fresh = 1.25 / (1.0 + max(0.0, ageHours) / 24.0)
         return videoBoost + topicBoost + quality + fresh
     }
 }

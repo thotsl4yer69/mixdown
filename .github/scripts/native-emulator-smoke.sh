@@ -56,7 +56,7 @@ from xml.etree import ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
 for node in root.iter("node"):
     if node.get("resource-id") == "android:id/aerr_close":
-        nums = [int(x) for x in re.findall(r"\\d+", node.get("bounds", ""))]
+        nums = [int(x) for x in re.findall(r"\d+", node.get("bounds", ""))]
         if len(nums) == 4:
             print((nums[0] + nums[2]) // 2, (nums[1] + nums[3]) // 2)
             break
@@ -92,4 +92,61 @@ if ! test -s "$OUTPUT/mixdown-emulator.png"; then
   exit 1
 fi
 
-echo "Mixdown installed-app smoke passed; PID=$PID; captured UI, screenshot and logs."
+
+# Exercise a real user journey. UI coordinates are discovered from Android's
+# accessibility tree, not hardcoded for a particular emulator screen size.
+tap_accessible() {
+  local label="$1"
+  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+  adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
+  local tap
+  tap="$(python3 - "$OUTPUT/window.xml" "$label" <<'PY'
+import re, sys
+from xml.etree import ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    if node.get("content-desc", "") == sys.argv[2]:
+        nums = [int(n) for n in re.findall(r"\d+", node.get("bounds", ""))]
+        if len(nums) == 4:
+            print((nums[0] + nums[2]) // 2, (nums[1] + nums[3]) // 2)
+            break
+else:
+    raise SystemExit("Missing accessible control: " + sys.argv[2])
+PY
+)"
+  local x y
+  read -r x y <<< "$tap"
+  adb shell input tap "$x" "$y"
+  sleep 2
+}
+
+tap_accessible "SAVE"
+tap_accessible "Open saved library"
+adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
+if ! grep -Fq 'SAVED / MIXDOWN' "$OUTPUT/window.xml"; then
+  echo "::error::Saved library did not open"
+  exit 1
+fi
+if grep -Fq 'Nothing saved yet' "$OUTPUT/window.xml"; then
+  echo "::error::Saved library did not retain the bookmarked item"
+  exit 1
+fi
+tap_accessible "Close saved library"
+
+# The saved item must survive a full process restart, not just Compose state.
+adb shell am force-stop "$PACKAGE"
+adb shell am start -W -n "$PACKAGE/.MainActivity"
+sleep 6
+tap_accessible "Open saved library"
+adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
+if grep -Fq 'Nothing saved yet' "$OUTPUT/window.xml"; then
+  echo "::error::Saved item disappeared after restarting the application"
+  exit 1
+fi
+tap_accessible "Close saved library"
+capture_diagnostics
+
+echo "Mixdown installed-app smoke passed: live feed, bookmark, restart persistence and accessible controls."
+
