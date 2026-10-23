@@ -41,4 +41,22 @@ class FeedRankerTest {
         assertTrue(FeedFilter.SOCIAL.accepts(item("s", "social")))
         assertFalse(FeedFilter.SOCIAL.accepts(item("a", "article")))
     }
+    @Test fun alternatePublishersWhenPossible() {
+        val input = listOf(
+            item("one", "article").copy(permalink = "https://alpha.test/one"),
+            item("two", "article").copy(permalink = "https://alpha.test/two"),
+            item("three", "article").copy(permalink = "https://beta.test/three"),
+            item("four", "article").copy(permalink = "https://alpha.test/four")
+        )
+        val ranked = FeedRanker.diversifySources(input)
+        assertEquals(listOf("one", "three", "two", "four"), ranked.map { it.id })
+    }
+
+    @Test fun onePublisherDoesNotDropItems() {
+        val input = (1..5).map {
+            item("story" + it, "article").copy(permalink = "https://alpha.test/" + it)
+        }
+        assertEquals(input.map { it.id }, FeedRanker.diversifySources(input).map { it.id })
+    }
+
 }
