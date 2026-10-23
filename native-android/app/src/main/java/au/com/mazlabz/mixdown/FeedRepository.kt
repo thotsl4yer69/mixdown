@@ -2,6 +2,7 @@ package au.com.mazlabz.mixdown
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -102,6 +103,9 @@ class FeedRepository(context: Context) {
                     conn.disconnect()
                 }
             } catch (error: Exception) {
+                Log.w("MixdownFeed", "Feed fetch failed for kind=" + kind +
+                    " (offset=" + offset + "): " + error.javaClass.simpleName +
+                    ": " + (error.message ?: "no details"))
                 if (offset > 0) throw error
                 storage.getString(cacheKey, null) ?: throw error
             }
