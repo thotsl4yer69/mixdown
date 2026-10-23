@@ -183,21 +183,21 @@ class FeedRepository(context: Context) {
         val paragraphs = if (blocks == null) emptyList() else (0 until blocks.length()).mapNotNull { n ->
             val block = blocks.optJSONObject(n) ?: return@mapNotNull null
             when (block.optString("t")) {
-                "p", "h", "quote", "li", "code" -> block.optString("text").takeIf { it.isNotBlank() }
+                "p", "h", "quote", "li", "code" -> FeedText.plain(block.optString("text")).takeIf { it.isNotBlank() }
                 else -> null
             }
         }
         return FeedItem(
             id = optString("id"),
             kind = optString("kind"),
-            title = optString("title"),
-            author = optString("author"),
+            title = FeedText.plain(optString("title")),
+            author = FeedText.plain(optString("author")),
             permalink = optString("permalink"),
             bucket = optString("bucket"),
             mediaUrl = optString("media_url"),
             mediaKind = optString("media_kind"),
             posterUrl = optString("poster_url").replace("&#038;", "&"),
-            excerpt = optString("excerpt"),
+            excerpt = FeedText.plain(optString("excerpt")),
             body = paragraphs,
             publishedAt = optString("published_at"),
             ingestedAt = optString("ingested_at"),
