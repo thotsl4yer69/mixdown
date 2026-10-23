@@ -12,6 +12,13 @@ class FeedRankerTest {
         "", "", emptyList(), "", "2026-10-20T01:00:00Z", 0.7, 0.6, 0.8, false
     )
 
+    @Test fun rssMetadataIsReadableNotXml() {
+        assertEquals("Tom Warren", FeedText.plain("<name>Tom Warren</name>"))
+        assertEquals("Rock & Roll", FeedText.plain("Rock &amp; Roll"))
+        assertEquals("Tom Warren", FeedText.plain("&lt;name&gt;Tom Warren&lt;/name&gt;"))
+        assertEquals("Xbox's news", FeedText.plain("Xbox&#39;s news"))
+    }
+
     @Test fun noDuplicatesInMixedFeed() {
         val items = listOf(item("v1", "video"), item("v1", "video"), item("a1", "article"))
         assertEquals(2, FeedRanker.rank(items, Taste(), FeedFilter.ALL).size)
