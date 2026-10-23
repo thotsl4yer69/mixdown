@@ -44,6 +44,32 @@ if [[ -z "$PID" ]]; then
 fi
 
 capture_diagnostics
+# Android 15's AOSP QuickstepLauncher sometimes ANRs on its first boot.
+# Its system dialog obscures a healthy foreground app. Dismiss only that
+# known launcher dialog, then independently recheck the actual Mixdown UI.
+if grep -Eq '(Quickstep|Pixel Launcher) isn.t responding' "$OUTPUT/window.xml"; then
+  echo "Launcher ANR after cold emulator boot; dismissing launcher dialog for app verification"
+  TAP="$(python3 - "$OUTPUT/window.xml" <<'PY'
+import re, sys
+from xml.etree import ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    if node.get("resource-id") == "android:id/aerr_close":
+        nums = [int(x) for x in re.findall(r"\\d+", node.get("bounds", ""))]
+        if len(nums) == 4:
+            print((nums[0] + nums[2]) // 2, (nums[1] + nums[3]) // 2)
+            break
+else:
+    raise SystemExit("Launcher ANR has no close-dialog control")
+PY
+)"
+  read -r TAP_X TAP_Y <<< "$TAP"
+  adb shell input tap "$TAP_X" "$TAP_Y"
+  sleep 3
+  adb shell am start -W -n "$PACKAGE/.MainActivity"
+  sleep 5
+  capture_diagnostics
+fi
 if grep -Eq "FATAL EXCEPTION|Fatal signal" "$OUTPUT/crash-log.txt"; then
   echo "::error::Android runtime reported a fatal exception"
   exit 1
