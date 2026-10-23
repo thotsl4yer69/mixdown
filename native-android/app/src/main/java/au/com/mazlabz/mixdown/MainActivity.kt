@@ -97,6 +97,8 @@ private class MixdownStore(private val repo: FeedRepository) {
         private set
     var exhausted by mutableStateOf(false)
         private set
+    var saved by mutableStateOf(repo.savedItems())
+        private set
 
     suspend fun reload() = load(reset = true)
     suspend fun more() = load(reset = false)
@@ -197,6 +199,7 @@ private class MixdownStore(private val repo: FeedRepository) {
     fun updateNsfw(next: Boolean) {
         nsfw = next
         repo.setNsfw(next)
+        saved = repo.savedItems()
         all.clear()
         items.clear()
         offsets.keys.forEach { offsets[it] = 0 }
@@ -204,6 +207,10 @@ private class MixdownStore(private val repo: FeedRepository) {
     }
 
     fun markViewed(id: String) = repo.recordViewed(id)
+
+    fun toggleSaved(item: FeedItem) {
+        saved = repo.toggleSaved(item)
+    }
 
     fun resetHistory() {
         repo.clearHistory()
@@ -219,6 +226,7 @@ private fun MixdownScreen(store: MixdownStore) {
     val pagerState = rememberPagerState(pageCount = { store.items.size })
     val player = remember(context) { ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ONE } }
     var settingsOpen by remember { mutableStateOf(false) }
+    var savedOpen by remember { mutableStateOf(false) }
     var reader by remember { mutableStateOf<FeedItem?>(null) }
     var playbackError by remember { mutableStateOf("") }
     val active = store.items.getOrNull(pagerState.settledPage)
@@ -308,6 +316,9 @@ private fun MixdownScreen(store: MixdownStore) {
                     playbackError = if (index == pagerState.settledPage) playbackError else "",
                     onRead = { reader = item },
                     onOriginal = { openSource(context, item.permalink) },
+                    onShare = { shareSource(context, item) },
+                    onSave = { store.toggleSaved(item) },
+                    saved = store.saved.any { it.id == item.id },
                     onMute = { store.updateMuted(!store.muted) },
                     muted = store.muted
                 )
@@ -346,6 +357,8 @@ private fun MixdownScreen(store: MixdownStore) {
                 Spacer(Modifier.width(8.dp))
                 Text("LIVE MIX", fontSize = 10.sp, color = Mint, letterSpacing = 1.sp)
                 Spacer(Modifier.width(14.dp))
+                Text("★", modifier = Modifier.clickable { savedOpen = true }.padding(8.dp),
+                    fontSize = 23.sp, color = Mint)
                 Text("↻", modifier = Modifier.clickable { scope.launch { store.reload() } }.padding(8.dp),
                     fontSize = 28.sp, color = TextBright)
                 Text("⚙", modifier = Modifier.clickable { settingsOpen = true }.padding(8.dp),
@@ -380,6 +393,18 @@ private fun MixdownScreen(store: MixdownStore) {
         }
     }
 
+    if (savedOpen) {
+        SavedDialog(
+            saved = store.saved,
+            onDismiss = { savedOpen = false },
+            onOpen = { item ->
+                savedOpen = false
+                if (item.kind == "video") openSource(context, item.permalink)
+                else reader = item
+            },
+            onRemove = { store.toggleSaved(it) }
+        )
+    }
     if (settingsOpen) {
         SettingsDialog(
             store = store,
@@ -409,6 +434,9 @@ private fun FeedPage(
     playbackError: String,
     onRead: () -> Unit,
     onOriginal: () -> Unit,
+    onShare: () -> Unit,
+    onSave: () -> Unit,
+    saved: Boolean,
     onMute: () -> Unit,
     muted: Boolean
 ) {
@@ -496,6 +524,8 @@ private fun FeedPage(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             if (item.playable) RoundAction(if (muted) "♪̸" else "♫", if (muted) "UNMUTE" else "MUTE", onMute)
+            RoundAction(if (saved) "★" else "☆", if (saved) "SAVED" else "SAVE", onSave)
+            RoundAction("↗", "SHARE", onShare)
             RoundAction("↗", "SOURCE", onOriginal)
             if (item.kind != "video") RoundAction("≡", "READ", onRead)
         }
@@ -581,6 +611,65 @@ private fun SettingsDialog(
     }
 }
 
+
+@Composable
+private fun SavedDialog(
+    saved: List<FeedItem>,
+    onDismiss: () -> Unit,
+    onOpen: (FeedItem) -> Unit,
+    onRemove: (FeedItem) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxSize().background(Ink).statusBarsPadding().navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("SAVED / MIXDOWN", color = TextBright, fontSize = 22.sp,
+                    fontWeight = FontWeight.Black)
+                Spacer(Modifier.weight(1f))
+                Text("✕", modifier = Modifier.clickable { onDismiss() }.padding(10.dp),
+                    color = TextBright, fontSize = 22.sp)
+            }
+            Text("Your library stays on this phone, including offline reading.",
+                color = TextDim, fontSize = 12.sp)
+            Spacer(Modifier.height(18.dp))
+            if (saved.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Nothing saved yet. Tap ☆ on any post to keep it here.",
+                        color = TextDim, textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(saved, key = { it.id }) { item ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
+                                .background(Panel).padding(15.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                Modifier.weight(1f).clickable { onOpen(item) },
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(item.kind.uppercase(), fontSize = 10.sp,
+                                    color = Mint, fontWeight = FontWeight.Bold)
+                                Text(item.title, color = TextBright, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                Text(item.author.ifBlank { "OPEN ITEM →" }, color = TextDim,
+                                    maxLines = 1, fontSize = 11.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text("✕", modifier = Modifier.clickable { onRemove(item) }
+                                .padding(9.dp), fontSize = 20.sp, color = Accent)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun TasteSlider(name: String, value: Float, onChange: (Float) -> Unit) {
     Row {
@@ -643,6 +732,16 @@ private fun timestampLabel(iso: String): String = runCatching {
     DateTimeFormatter.ofPattern("d MMM").withZone(ZoneId.of("Australia/Melbourne"))
         .format(Instant.parse(iso))
 }.getOrDefault("")
+
+private fun shareSource(context: android.content.Context, item: FeedItem) {
+    val uri = runCatching { Uri.parse(item.permalink) }.getOrNull() ?: return
+    if (uri.scheme != "https" && uri.scheme != "http") return
+    val share = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, item.title + "\n" + item.permalink)
+    }
+    runCatching { context.startActivity(Intent.createChooser(share, "Share from Mixdown")) }
+}
 
 private fun openSource(context: android.content.Context, url: String) {
     val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
