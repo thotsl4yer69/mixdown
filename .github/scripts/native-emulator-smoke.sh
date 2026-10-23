@@ -4,7 +4,7 @@
 set -euo pipefail
 
 OUTPUT="native-android/smoke-output"
-PACKAGE="au.com.mazlabz.mixdown"
+PACKAGE="au.com.mazlabz.mixdown.beta"
 mkdir -p "$OUTPUT"
 
 capture_diagnostics() {
@@ -20,7 +20,7 @@ capture_diagnostics() {
 trap capture_diagnostics EXIT
 
 adb install -r native-android/app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -W -n "$PACKAGE/.MainActivity"
+adb shell am start -W -n "$PACKAGE/au.com.mazlabz.mixdown.MainActivity"
 
 # A cold emulator may need a few seconds to initialize Compose.
 PID=""
@@ -67,7 +67,7 @@ PY
   read -r TAP_X TAP_Y <<< "$TAP"
   adb shell input tap "$TAP_X" "$TAP_Y"
   sleep 3
-  adb shell am start -W -n "$PACKAGE/.MainActivity"
+  adb shell am start -W -n "$PACKAGE/au.com.mazlabz.mixdown.MainActivity"
   sleep 5
   capture_diagnostics
 fi
@@ -148,7 +148,7 @@ tap_accessible "Close saved library"
 
 # The saved item must survive a full process restart, not just Compose state.
 adb shell am force-stop "$PACKAGE"
-adb shell am start -W -n "$PACKAGE/.MainActivity"
+adb shell am start -W -n "$PACKAGE/au.com.mazlabz.mixdown.MainActivity"
 sleep 6
 tap_accessible "Open saved library"
 adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
