@@ -120,7 +120,8 @@ object FeedRanker {
         val ageHours = runCatching {
             (System.currentTimeMillis() - Instant.parse(item.ingestedAt).toEpochMilli()) / 3600000.0
         }.getOrDefault(72.0)
-        val fresh = 0.25 / (1.0 + max(0.0, ageHours) / 36.0)
+        // A daily feed should reward genuinely new discoveries, not just historic popularity.
+        val fresh = 1.25 / (1.0 + max(0.0, ageHours) / 24.0)
         return videoBoost + topicBoost + quality + fresh
     }
 }
