@@ -543,9 +543,11 @@ private fun FeedPage(
                     maxLines = 4, overflow = TextOverflow.Ellipsis, color = TextDim)
             }
             Spacer(Modifier.height(14.dp))
-            Text(listOf(item.author, publishedLabel(item.publishedAt))
-                .filter { it.isNotBlank() }.joinToString("  •  "),
-                color = TextDim, fontSize = 12.sp, maxLines = 1)
+            if (item.author.isNotBlank()) {
+                Text(item.author, color = TextDim, fontSize = 12.sp, maxLines = 1)
+            }
+            Text(publishedLabel(item.publishedAt),
+                color = Mint, fontSize = 12.sp, maxLines = 1)
             Spacer(Modifier.height(18.dp))
             if (playbackError.isNotBlank()) {
                 Text(playbackError, color = Accent, fontSize = 12.sp)
@@ -609,7 +611,7 @@ private fun HeadlinePage(
                     model = item.posterUrl,
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().weight(0.38f)
+                    modifier = Modifier.fillMaxWidth().weight(0.95f)
                         .clip(RoundedCornerShape(18.dp))
                 )
             } else {
@@ -636,7 +638,7 @@ private fun HeadlinePage(
                     maxLines = 4, overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.weight(0.35f))
             Button(
                 onClick = onRead,
                 modifier = Modifier.fillMaxWidth(),
