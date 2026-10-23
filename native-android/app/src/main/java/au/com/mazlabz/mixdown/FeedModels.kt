@@ -28,12 +28,11 @@ data class FeedItem(
 }
 
 enum class FeedFilter(val title: String) {
-    ALL("For you"), VIDEOS("Clips"), ARTICLES("Read"), SOCIAL("Social");
+    ALL("For you"), VIDEOS("Videos"), ARTICLES("Headlines");
     fun accepts(item: FeedItem): Boolean = when (this) {
-        ALL -> true
+        ALL -> item.playable || item.kind == "article"
         VIDEOS -> item.playable
         ARTICLES -> item.kind == "article"
-        SOCIAL -> item.kind == "social"
     }
 }
 
@@ -63,11 +62,11 @@ object FeedRanker {
 
         val videos = ArrayDeque(diversifySources(sorted.filter { it.playable }))
         val articles = ArrayDeque(diversifySources(sorted.filter { it.kind == "article" }))
-        val socials = ArrayDeque(diversifySources(sorted.filter { it.kind == "social" && isFreshSocial(it) }))
-        // Preserve a mixed feed regardless of the imbalance in ingestion volume.
-        val cycle = listOf(videos, articles, videos, socials, videos, articles, videos)
+        // Social ingestion is currently stale. Keep it out of the primary navigation
+        // until fresh, properly attributed community items can be guaranteed.
+        val cycle = listOf(videos, articles, videos, articles, videos)
         val result = ArrayList<FeedItem>(sorted.size)
-        while (videos.isNotEmpty() || articles.isNotEmpty() || socials.isNotEmpty()) {
+        while (videos.isNotEmpty() || articles.isNotEmpty()) {
             var progress = false
             for (pool in cycle) {
                 if (pool.isNotEmpty()) {
@@ -117,9 +116,11 @@ object FeedRanker {
         val quality = item.quality.coerceIn(0.0, 1.0) * 0.24 +
             item.visual.coerceIn(0.0, 1.0) * 0.24 +
             item.engagement.coerceIn(0.0, 1.0) * 0.18
+        // Actual publication time, NEVER ingestion time. Discovering an
+        // archived clip today doesn't make it a new video.
         val ageHours = runCatching {
-            (System.currentTimeMillis() - Instant.parse(item.ingestedAt).toEpochMilli()) / 3600000.0
-        }.getOrDefault(72.0)
+            (System.currentTimeMillis() - Instant.parse(item.publishedAt).toEpochMilli()) / 3600000.0
+        }.getOrDefault(24.0 * 365.0)
         // A daily feed should reward genuinely new discoveries, not just historic popularity.
         val fresh = 1.25 / (1.0 + max(0.0, ageHours) / 24.0)
         return videoBoost + topicBoost + quality + fresh
