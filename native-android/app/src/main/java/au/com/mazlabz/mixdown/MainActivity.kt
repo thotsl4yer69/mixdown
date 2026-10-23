@@ -286,7 +286,7 @@ private fun MixdownScreen(store: MixdownStore) {
             when (event) {
                 Lifecycle.Event.ON_STOP -> player.pause()
                 Lifecycle.Event.ON_START -> {
-                    if (player.mediaItemCount > 0 && reader == null && !settingsOpen) player.play()
+                    if (player.mediaItemCount > 0 && reader == null && !settingsOpen && !savedOpen) player.play()
                 }
                 else -> Unit
             }
@@ -295,8 +295,8 @@ private fun MixdownScreen(store: MixdownStore) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(reader, settingsOpen) {
-        if (reader != null || settingsOpen) player.pause()
+    LaunchedEffect(reader, settingsOpen, savedOpen) {
+        if (reader != null || settingsOpen || savedOpen) player.pause()
         else if (active?.playable == true) player.play()
     }
 
