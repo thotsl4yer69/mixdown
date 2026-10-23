@@ -1,0 +1,73 @@
+name: Mixdown Native Android
+
+on:
+  push:
+    paths:
+      - "native-android/**"
+      - ".github/workflows/native-android.yml"
+  pull_request:
+    paths:
+      - "native-android/**"
+      - ".github/workflows/native-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-build-and-live-feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER" || { echo "Android sdkmanager not installed"; exit 1; }
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" || test -d "$SDK_ROOT/platforms/android-35"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+      - name: Verify real safe content is accessible to the client
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const props = Object.fromEntries(fs.readFileSync('native-android/mixdown.properties','utf8')
+            .split(/\r?\n/).filter(x => x.includes('=')).map(line => {
+              const index = line.indexOf('=');
+              return [line.slice(0,index),line.slice(index+1).trim()];
+            }));
+          (async () => {
+            const url = props.url + '/rest/v1/items?select=id,kind,is_nsfw&is_nsfw=eq.false&limit=5';
+            const response = await fetch(url,{headers:{apikey:props.publishableKey}});
+            if (!response.ok) throw new Error('Backend HTTP ' + response.status + ': ' + (await response.text()).slice(0,200));
+            const rows = await response.json();
+            if (!Array.isArray(rows) || rows.length === 0 || rows.some(row => row.is_nsfw !== false)) {
+              throw new Error('No safe feed records returned by live backend');
+            }
+            console.log('Live Supabase check passed (' + rows.length + ' safe items)');
+          })().catch(e=>{ console.error(e);process.exit(1) });
+          NODE
+      - name: Unit tests and installable native APK
+        run: gradle --project-dir native-android :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Check APK and digest
+        run: |
+          test -s native-android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -t native-android/app/build/outputs/apk/debug/app-debug.apk | tail -n 1
+          sha256sum native-android/app/build/outputs/apk/debug/app-debug.apk > native-android/app/build/outputs/apk/debug/mixdown-native.SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mixdown-native-android-apk
+          path: |
+            native-android/app/build/outputs/apk/debug/app-debug.apk
+            native-android/app/build/outputs/apk/debug/mixdown-native.SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 90
