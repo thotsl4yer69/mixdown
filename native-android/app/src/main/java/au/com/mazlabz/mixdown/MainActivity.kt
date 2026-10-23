@@ -106,10 +106,9 @@ private class MixdownStore(private val repo: FeedRepository) {
         loading = true
         error = ""
         try {
+            // Retain the visible feed until new content is ready. A transient
+            // network failure should never blank the user's scrolling session.
             if (reset) {
-                offsets.keys.forEach { offsets[it] = 0 }
-                all.clear()
-                items.clear()
                 exhausted = false
             }
             val batches = coroutineScope {
@@ -131,11 +130,20 @@ private class MixdownStore(private val repo: FeedRepository) {
             val existing = all.mapTo(HashSet()) { it.id }
             val seen = repo.seenIds()
             val newItems = added.filter { it.id !in existing && it.id !in seen }
+            if (reset && (errors < batches.size)) {
+                offsets.keys.forEach { offsets[it] = 0 }
+                for ((kind, result) in batches) {
+                    result.onSuccess { chunk -> offsets[kind] = chunk.size }
+                }
+                all.clear()
+            }
             all.addAll(newItems)
             val ranked = FeedRanker.rank(if (reset) all else newItems, taste, filter)
-            if (reset) {
+            if (reset && (errors < batches.size)) {
                 items.clear()
                 items.addAll(ranked)
+            } else if (reset) {
+                // Refresh failed across every pool: keep the old feed intact.
             } else {
                 items.addAll(ranked.filter { next -> items.none { it.id == next.id } })
             }
