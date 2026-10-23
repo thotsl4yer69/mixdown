@@ -87,6 +87,18 @@ if grep -Fq 'Nothing to scroll yet' "$OUTPUT/window.xml"; then
   echo "::error::Native UI loads, but the real Supabase-backed scroll feed is empty"
   exit 1
 fi
+if ! grep -Fq 'text="Videos"' "$OUTPUT/window.xml" || ! grep -Fq 'text="Headlines"' "$OUTPUT/window.xml"; then
+  echo "::error::Expected For you / Videos / Headlines navigation is missing"
+  exit 1
+fi
+if grep -Fq 'text="Social"' "$OUTPUT/window.xml"; then
+  echo "::error::Stale Social category is still exposed as a main tab"
+  exit 1
+fi
+if ! grep -Eq 'Published [0-9]+ [A-Za-z]+ 20[0-9]{2}' "$OUTPUT/window.xml"; then
+  echo "::error::The publication date must include the full year"
+  exit 1
+fi
 if ! test -s "$OUTPUT/mixdown-emulator.png"; then
   echo "::error::Missing installed-app screenshot"
   exit 1
@@ -146,6 +158,40 @@ if grep -Fq 'Nothing saved yet' "$OUTPUT/window.xml"; then
   exit 1
 fi
 tap_accessible "Close saved library"
+
+# The Headlines tab must offer actual readable articles.
+tap_text() {
+  local label="$1"
+  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+  adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
+  local tap
+  tap="$(python3 - "$OUTPUT/window.xml" "$label" <<'PY'
+import re, sys
+from xml.etree import ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    if node.get("text", "") == sys.argv[2]:
+        nums = [int(n) for n in re.findall(r"\d+", node.get("bounds", ""))]
+        if len(nums) == 4:
+            print((nums[0] + nums[2]) // 2, (nums[1] + nums[3]) // 2)
+            break
+else:
+    raise SystemExit("Missing text control: " + sys.argv[2])
+PY
+)"
+  local x y
+  read -r x y <<< "$tap"
+  adb shell input tap "$x" "$y"
+  sleep 2
+}
+
+tap_text "Headlines"
+adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
+if ! grep -Fq 'READ STORY' "$OUTPUT/window.xml"; then
+  echo "::error::Headlines tab does not show a readable story"
+  exit 1
+fi
 capture_diagnostics
 
 echo "Mixdown installed-app smoke passed: live feed, bookmark, restart persistence and accessible controls."
