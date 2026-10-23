@@ -40,7 +40,6 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_6
-          target: google_apis
           disable-animations: true
           # Default AOSP image avoids Pixel Launcher first-boot ANR observed in the previous screenshot.
           target: default
