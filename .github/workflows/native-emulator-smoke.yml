@@ -6,6 +6,7 @@ on:
     paths:
       - "native-android/**"
       - ".github/workflows/native-emulator-smoke.yml"
+      - ".github/scripts/native-emulator-smoke.sh"
 
 # Prevent obsolete builds from crowding the Android emulator runners.
 concurrency:
