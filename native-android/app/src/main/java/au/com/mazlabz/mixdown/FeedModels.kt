@@ -50,6 +50,19 @@ data class Taste(
     }
 }
 
+/** Strip embedded RSS/Atom markup before rendering any metadata. */
+object FeedText {
+    fun plain(input: String): String {
+        val decoded = input
+            .replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&amp;", "&").replace("&quot;", "\"")
+            .replace("&#39;", "'").replace("&#x27;", "'")
+            .replace("&apos;", "'").replace("&nbsp;", " ")
+        return decoded.replace(Regex("</?[A-Za-z][^>]*>"), "")
+            .replace(Regex("\\s+"), " ").trim()
+    }
+}
+
 object FeedRanker {
     fun rank(items: List<FeedItem>, taste: Taste, filter: FeedFilter): List<FeedItem> {
         val distinct = items.distinctBy { it.id }.filter { filter.accepts(it) }
