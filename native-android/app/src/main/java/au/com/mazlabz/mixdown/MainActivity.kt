@@ -27,6 +27,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -369,11 +371,14 @@ private fun MixdownScreen(store: MixdownStore) {
                 Spacer(Modifier.width(8.dp))
                 Text("LIVE MIX", fontSize = 10.sp, color = Mint, letterSpacing = 1.sp)
                 Spacer(Modifier.width(14.dp))
-                Text("★", modifier = Modifier.clickable { savedOpen = true }.padding(8.dp),
+                Text("★", modifier = Modifier.semantics { contentDescription = "Open saved library" }
+                    .clickable { savedOpen = true }.padding(8.dp),
                     fontSize = 23.sp, color = Mint)
-                Text("↻", modifier = Modifier.clickable { scope.launch { store.reload() } }.padding(8.dp),
+                Text("↻", modifier = Modifier.semantics { contentDescription = "Refresh feed" }
+                    .clickable { scope.launch { store.reload() } }.padding(8.dp),
                     fontSize = 28.sp, color = TextBright)
-                Text("⚙", modifier = Modifier.clickable { settingsOpen = true }.padding(8.dp),
+                Text("⚙", modifier = Modifier.semantics { contentDescription = "Open settings" }
+                    .clickable { settingsOpen = true }.padding(8.dp),
                     fontSize = 25.sp, color = TextBright)
             }
             if (store.error.isNotBlank() && store.items.isNotEmpty()) {
@@ -565,7 +570,8 @@ private fun FeedPage(
 private fun RoundAction(symbol: String, label: String, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier.semantics { contentDescription = label }
+            .clickable(onClick = onClick)
     ) {
         Box(Modifier.size(46.dp).clip(CircleShape).background(Color(0xCC252A32)),
             contentAlignment = Alignment.Center) {
@@ -657,7 +663,8 @@ private fun SavedDialog(
                 Text("SAVED / MIXDOWN", color = TextBright, fontSize = 22.sp,
                     fontWeight = FontWeight.Black)
                 Spacer(Modifier.weight(1f))
-                Text("✕", modifier = Modifier.clickable { onDismiss() }.padding(10.dp),
+                Text("✕", modifier = Modifier.semantics { contentDescription = "Close saved library" }
+                    .clickable { onDismiss() }.padding(10.dp),
                     color = TextBright, fontSize = 22.sp)
             }
             Text("Your library stays on this phone, including offline reading.",
@@ -689,8 +696,8 @@ private fun SavedDialog(
                                     maxLines = 1, fontSize = 11.sp)
                             }
                             Spacer(Modifier.width(8.dp))
-                            Text("✕", modifier = Modifier.clickable { onRemove(item) }
-                                .padding(9.dp), fontSize = 20.sp, color = Accent)
+                            Text("✕", modifier = Modifier.semantics { contentDescription = "Remove saved item" }
+                                .clickable { onRemove(item) }.padding(9.dp), fontSize = 20.sp, color = Accent)
                         }
                     }
                 }
