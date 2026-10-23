@@ -63,7 +63,7 @@ object FeedRanker {
 
         val videos = ArrayDeque(diversifySources(sorted.filter { it.playable }))
         val articles = ArrayDeque(diversifySources(sorted.filter { it.kind == "article" }))
-        val socials = ArrayDeque(diversifySources(sorted.filter { it.kind == "social" }))
+        val socials = ArrayDeque(diversifySources(sorted.filter { it.kind == "social" && isFreshSocial(it) }))
         // Preserve a mixed feed regardless of the imbalance in ingestion volume.
         val cycle = listOf(videos, articles, videos, socials, videos, articles, videos)
         val result = ArrayList<FeedItem>(sorted.size)
@@ -79,6 +79,14 @@ object FeedRanker {
         }
         return result
     }
+
+    // Do not interleave weeks-old community posts into a supposedly current
+    // For You feed. The dedicated Social tab still exposes the full archive.
+    internal fun isFreshSocial(item: FeedItem, now: Instant = Instant.now()): Boolean =
+        runCatching {
+            val age = java.time.Duration.between(Instant.parse(item.ingestedAt), now)
+            !age.isNegative && age.toDays() < 14
+        }.getOrDefault(false)
 
     // Interleave publishers within each content pool while preserving each publisher's ranking.
     // Remaining items from one source still appear rather than being silently dropped.
