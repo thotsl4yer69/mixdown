@@ -41,6 +41,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.VideoSize
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -229,6 +230,7 @@ private fun MixdownScreen(store: MixdownStore) {
     var savedOpen by remember { mutableStateOf(false) }
     var reader by remember { mutableStateOf<FeedItem?>(null) }
     var playbackError by remember { mutableStateOf("") }
+    var videoAspect by remember { mutableFloatStateOf(1f) }
     val active = store.items.getOrNull(pagerState.settledPage)
 
     LaunchedEffect(Unit) { store.reload() }
@@ -257,6 +259,7 @@ private fun MixdownScreen(store: MixdownStore) {
         player.pause()
         player.clearMediaItems()
         playbackError = ""
+        videoAspect = 1f
         if (active?.playable == true) {
             val media = MediaItem.Builder().setUri(active.mediaUrl)
                 .apply {
@@ -272,6 +275,14 @@ private fun MixdownScreen(store: MixdownStore) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 playbackError = "This clip couldn't play. Open the original to view it."
+            }
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                val width = videoSize.width
+                val height = videoSize.height
+                if (width > 0 && height > 0) {
+                    videoAspect = (width * videoSize.pixelWidthHeightRatio / height)
+                        .coerceIn(0.35f, 3.0f)
+                }
             }
         }
         player.addListener(listener)
@@ -313,6 +324,7 @@ private fun MixdownScreen(store: MixdownStore) {
                     item = item,
                     player = player,
                     active = index == pagerState.settledPage,
+                    videoAspect = videoAspect,
                     playbackError = if (index == pagerState.settledPage) playbackError else "",
                     onRead = { reader = item },
                     onOriginal = { openSource(context, item.permalink) },
@@ -431,6 +443,7 @@ private fun FeedPage(
     item: FeedItem,
     player: ExoPlayer,
     active: Boolean,
+    videoAspect: Float,
     playbackError: String,
     onRead: () -> Unit,
     onOriginal: () -> Unit,
@@ -441,29 +454,45 @@ private fun FeedPage(
     muted: Boolean
 ) {
     Box(Modifier.fillMaxSize().background(Ink)) {
+        // Image underlay makes wide clips feel intentional instead of leaving
+        // a giant empty black stage above and below the player.
+        if (item.posterUrl.startsWith("https://")) {
+            AsyncImage(
+                model = item.posterUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(Modifier.fillMaxSize().background(Color(0x99080A0E)))
+        } else {
+            Box(Modifier.fillMaxSize().background(
+                Brush.linearGradient(listOf(Color(0xFF252C36), Ink))
+            ))
+        }
+
         if (item.playable && active) {
+            val landscape = videoAspect > 1.15f
             AndroidView(
                 factory = { context ->
                     PlayerView(context).apply {
                         this.player = player
                         useController = false
+                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     }
                 },
-                update = { it.player = player },
-                modifier = Modifier.fillMaxSize()
+                update = { view ->
+                    view.player = player
+                    view.resizeMode = if (landscape)
+                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    else
+                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                },
+                modifier = if (landscape)
+                    Modifier.fillMaxWidth().aspectRatio(videoAspect).align(Alignment.Center)
+                else
+                    Modifier.fillMaxSize()
             )
-        } else if (item.posterUrl.startsWith("https://")) {
-            AsyncImage(
-                model = item.posterUrl,
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Box(Modifier.fillMaxSize().background(
-                Brush.linearGradient(listOf(Color(0xFF252C36), Ink))
-            ))
         }
 
         Box(Modifier.fillMaxSize().background(
