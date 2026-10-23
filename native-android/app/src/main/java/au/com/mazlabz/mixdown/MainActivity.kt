@@ -123,31 +123,38 @@ private class MixdownStore(private val repo: FeedRepository) {
             val added = ArrayList<FeedItem>()
             for ((kind, result) in batches) {
                 result.onSuccess { chunk ->
-                    offsets[kind] = (offsets[kind] ?: 0) + chunk.size
+                    // Reset uses the first page of each pool. Pagination advances
+                    // only for pools whose requests actually succeeded.
+                    offsets[kind] = (if (reset) 0 else offsets[kind] ?: 0) + chunk.size
                     added.addAll(chunk)
                 }.onFailure { errors++ }
             }
-            val existing = all.mapTo(HashSet()) { it.id }
             val seen = repo.seenIds()
+            val existing = if (reset) emptySet() else all.mapTo(HashSet()) { it.id }
             val newItems = added.filter { it.id !in existing && it.id !in seen }
-            if (reset && (errors < batches.size)) {
-                offsets.keys.forEach { offsets[it] = 0 }
-                for ((kind, result) in batches) {
-                    result.onSuccess { chunk -> offsets[kind] = chunk.size }
+                .distinctBy { it.id }
+            if (reset) {
+                if (errors < batches.size && newItems.isNotEmpty()) {
+                    // Only switch the visible list after a usable replacement
+                    // arrives. Avoid blanking the screen for seen-only or failed refreshes.
+                    all.clear()
+                    all.addAll(newItems)
+                    items.clear()
+                    items.addAll(FeedRanker.rank(all, taste, filter))
+                } else if (items.isNotEmpty()) {
+                    error = if (errors == batches.size) {
+                        "Couldn't refresh. Your previous mix is still available."
+                    } else {
+                        "No unseen posts in the latest batch. Keeping your mix."
+                    }
                 }
-                all.clear()
-            }
-            all.addAll(newItems)
-            val ranked = FeedRanker.rank(if (reset) all else newItems, taste, filter)
-            if (reset && (errors < batches.size)) {
-                items.clear()
-                items.addAll(ranked)
-            } else if (reset) {
-                // Refresh failed across every pool: keep the old feed intact.
             } else {
-                items.addAll(ranked.filter { next -> items.none { it.id == next.id } })
+                all.addAll(newItems)
+                val ranked = FeedRanker.rank(newItems, taste, filter)
+                val displayed = items.mapTo(HashSet()) { it.id }
+                items.addAll(ranked.filter { it.id !in displayed })
             }
-            if (added.isEmpty()) exhausted = true
+            if (added.isEmpty() && errors == 0) exhausted = true
             if (items.isEmpty()) {
                 error = if (errors == batches.size) {
                     "Could not reach the feed. Check your connection and try again."
@@ -233,11 +240,15 @@ private fun MixdownScreen(store: MixdownStore) {
         }
     }
 
-    LaunchedEffect(active?.id, store.muted) {
+    LaunchedEffect(store.muted) {
+        // Muting never re-prepares the current video or loses playback position.
+        player.volume = if (store.muted) 0f else 1f
+    }
+
+    LaunchedEffect(active?.id) {
         player.pause()
         player.clearMediaItems()
         playbackError = ""
-        player.volume = if (store.muted) 0f else 1f
         if (active?.playable == true) {
             val media = MediaItem.Builder().setUri(active.mediaUrl)
                 .apply {
