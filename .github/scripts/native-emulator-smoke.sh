@@ -15,6 +15,7 @@ capture_diagnostics() {
   adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1 || true
   adb shell dumpsys activity activities > "$OUTPUT/activities.txt" 2>/dev/null || true
+  adb shell dumpsys connectivity > "$OUTPUT/connectivity.txt" 2>/dev/null || true
 }
 trap capture_diagnostics EXIT
 
@@ -78,8 +79,12 @@ if grep -Eqi "isn.t responding|not responding" "$OUTPUT/window.xml"; then
   echo "::error::The emulator displayed an ANR dialog; inspect saved diagnostics"
   exit 1
 fi
-if ! grep -Fq 'MIXDOWN' "$OUTPUT/window.xml"; then
+if ! grep -Fq 'text="MIX"' "$OUTPUT/window.xml" || ! grep -Fq 'text="DOWN"' "$OUTPUT/window.xml"; then
   echo "::error::Mixdown UI content was not visible to Android accessibility"
+  exit 1
+fi
+if grep -Fq 'Nothing to scroll yet' "$OUTPUT/window.xml"; then
+  echo "::error::Native UI loads, but the real Supabase-backed scroll feed is empty"
   exit 1
 fi
 if ! test -s "$OUTPUT/mixdown-emulator.png"; then
