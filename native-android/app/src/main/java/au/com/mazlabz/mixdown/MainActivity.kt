@@ -125,13 +125,16 @@ private class MixdownStore(private val repo: FeedRepository) {
                 }.awaitAll()
             }
             var errors = 0
+            var rawReceived = 0
             val added = ArrayList<FeedItem>()
             for ((kind, result) in batches) {
                 result.onSuccess { chunk ->
                     // Reset uses the first page of each pool. Pagination advances
                     // only for pools whose requests actually succeeded.
-                    offsets[kind] = (if (reset) 0 else offsets[kind] ?: 0) + chunk.size
-                    added.addAll(chunk)
+                    val start = if (reset) 0 else offsets[kind] ?: 0
+                    offsets[kind] = chunk.nextOffset(start)
+                    rawReceived += chunk.received
+                    added.addAll(chunk.items)
                 }.onFailure { errors++ }
             }
             val seen = repo.seenIds()
@@ -159,7 +162,9 @@ private class MixdownStore(private val repo: FeedRepository) {
                 val displayed = items.mapTo(HashSet()) { it.id }
                 items.addAll(ranked.filter { it.id !in displayed })
             }
-            if (added.isEmpty() && errors == 0) exhausted = true
+            // Only a genuinely empty server response exhausts pagination. Client-side
+            // freshness, safety and media validation may filter an otherwise full page.
+            if (rawReceived == 0 && errors == 0) exhausted = true
             if (items.isEmpty()) {
                 error = if (errors == batches.size) {
                     "Could not reach the feed. Check your connection and try again."
