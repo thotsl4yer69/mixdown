@@ -1,0 +1,106 @@
+name: Prepare privately signed Mixdown 2.2 APK
+
+# Release signing is deliberate and never happens for pull requests.
+# The original stable signing identity must be preserved in Actions secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: "Exact 40-character main commit reviewed in native build + emulator jobs"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Validate source commit is current main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "::error::Expected a full commit SHA"; exit 1; }
+          CURRENT_MAIN="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
+          [[ "$REVIEWED_SHA" == "$CURRENT_MAIN" ]] || { echo "::error::Commit is not current main; re-run release review."; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" || test -d "$SDK_ROOT/platforms/android-35"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: Require a retained private signing identity
+        shell: bash
+        env:
+          STORE_B64: ${{ secrets.MIXDOWN_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.MIXDOWN_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MIXDOWN_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.MIXDOWN_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for value in "$STORE_B64" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            if [[ -z "$value" ]]; then
+              echo "::error::Original persistent release keystore / signing secrets are missing; refusing temporary test signing."
+              exit 1
+            fi
+          done
+          KEYSTORE="$RUNNER_TEMP/mixdown-release.jks"
+          printf '%s' "$STORE_B64" | base64 --decode > "$KEYSTORE"
+          test -s "$KEYSTORE"
+          echo "MIXDOWN_RELEASE_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "MIXDOWN_RELEASE_KEYSTORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "MIXDOWN_RELEASE_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "MIXDOWN_RELEASE_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Test and build signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --project-dir native-android :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --no-daemon
+          APK="native-android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/mixdown-signature.txt"
+          unzip -t "$APK" >/dev/null
+          mkdir -p native-android/release-candidate
+          cp "$APK" native-android/release-candidate/mixdown-2.2.0.apk
+          cp "$RUNNER_TEMP/mixdown-signature.txt" native-android/release-candidate/signature.txt
+          (cd native-android/release-candidate && sha256sum mixdown-2.2.0.apk > SHA256SUMS.txt)
+          printf '%s\n' "${GITHUB_SHA}" > native-android/release-candidate/workflow-commit.txt
+          printf '%s\n' "${{ inputs.reviewed_sha }}" > native-android/release-candidate/source-commit.txt
+
+      - name: Upload signed private candidate (not publicly published)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixdown-2.2.0-release-signed
+          path: native-android/release-candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove temporary keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mixdown-release.jks"
