@@ -63,6 +63,14 @@ object FeedText {
     }
 }
 
+/** Avoid an empty feed when the newest server page contains only previously seen posts. */
+object FeedBackfill {
+    private const val MAX_PASSES = 4
+    private const val TARGET_UNSEEN = 8
+    fun shouldContinue(passes: Int, availableKinds: Int, unseen: Int): Boolean =
+        passes < MAX_PASSES && availableKinds > 0 && unseen < TARGET_UNSEEN
+}
+
 object FeedRanker {
     fun rank(items: List<FeedItem>, taste: Taste, filter: FeedFilter): List<FeedItem> {
         val distinct = items.distinctBy { it.id }.filter { filter.accepts(it) }
