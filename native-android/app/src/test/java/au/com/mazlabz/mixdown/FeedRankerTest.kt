@@ -12,6 +12,14 @@ class FeedRankerTest {
         "", "", emptyList(), "", "2026-10-20T01:00:00Z", 0.7, 0.6, 0.8, false
     )
 
+    @Test fun boundedBackfillSkipsSeenOnlyPagesWithoutInfiniteRequests() {
+        assertTrue(FeedBackfill.shouldContinue(0, 2, 0))
+        assertTrue(FeedBackfill.shouldContinue(2, 1, 7))
+        assertFalse(FeedBackfill.shouldContinue(4, 2, 0))
+        assertFalse(FeedBackfill.shouldContinue(1, 0, 0))
+        assertFalse(FeedBackfill.shouldContinue(1, 2, 8))
+    }
+
     @Test fun paginationAdvancesByRawServerRowsEvenAfterFiltering() {
         val filtered = FeedBatch(listOf(item("valid", "video")), received = 45)
         assertEquals(90, filtered.nextOffset(45))
