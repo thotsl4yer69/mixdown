@@ -116,33 +116,42 @@ private class MixdownStore(private val repo: FeedRepository) {
             if (reset) {
                 exhausted = false
             }
-            val batches = coroutineScope {
-                listOf("video", "article").map { kind ->
-                    async {
-                        val batch = runCatching { repo.fetch(kind, if (reset) 0 else (offsets[kind] ?: 0)) }
-                        kind to batch
-                    }
-                }.awaitAll()
-            }
-            var errors = 0
-            var rawReceived = 0
-            val added = ArrayList<FeedItem>()
-            for ((kind, result) in batches) {
-                result.onSuccess { chunk ->
-                    // Reset uses the first page of each pool. Pagination advances
-                    // only for pools whose requests actually succeeded.
-                    val start = if (reset) 0 else offsets[kind] ?: 0
-                    offsets[kind] = chunk.nextOffset(start)
-                    rawReceived += chunk.received
-                    added.addAll(chunk.items)
-                }.onFailure { errors++ }
-            }
+            if (reset) offsets.keys.forEach { offsets[it] = 0 }
             val seen = repo.seenIds()
             val existing = if (reset) emptySet() else all.mapTo(HashSet()) { it.id }
+            val added = ArrayList<FeedItem>()
+            val remainingKinds = mutableSetOf("video", "article")
+            var successfulBatches = 0
+            var errors = 0
+            var rawReceived = 0
+            var passes = 0
+            // Look beyond a page full of already viewed or filtered rows.
+            // Bound requests to avoid indefinite work when sources are exhausted.
+            while (FeedBackfill.shouldContinue(passes, remainingKinds.size,
+                    added.count { it.id !in existing && it.id !in seen })) {
+                passes++
+                val batches = coroutineScope {
+                    remainingKinds.toList().map { kind ->
+                        async { kind to runCatching { repo.fetch(kind, offsets[kind] ?: 0) } }
+                    }.awaitAll()
+                }
+                for ((kind, result) in batches) {
+                    result.onSuccess { chunk ->
+                        successfulBatches++
+                        offsets[kind] = chunk.nextOffset(offsets[kind] ?: 0)
+                        rawReceived += chunk.received
+                        added.addAll(chunk.items)
+                        if (chunk.received == 0) remainingKinds.remove(kind)
+                    }.onFailure {
+                        errors++
+                        remainingKinds.remove(kind)
+                    }
+                }
+            }
             val newItems = added.filter { it.id !in existing && it.id !in seen }
                 .distinctBy { it.id }
             if (reset) {
-                if (errors < batches.size && newItems.isNotEmpty()) {
+                if (successfulBatches > 0 && newItems.isNotEmpty()) {
                     // Only switch the visible list after a usable replacement
                     // arrives. Avoid blanking the screen for seen-only or failed refreshes.
                     all.clear()
@@ -150,7 +159,7 @@ private class MixdownStore(private val repo: FeedRepository) {
                     items.clear()
                     items.addAll(FeedRanker.rank(all, taste, filter))
                 } else if (items.isNotEmpty()) {
-                    error = if (errors == batches.size) {
+                    error = if (successfulBatches == 0) {
                         "Couldn't refresh. Your previous mix is still available."
                     } else {
                         "No unseen posts in the latest batch. Keeping your mix."
@@ -164,9 +173,9 @@ private class MixdownStore(private val repo: FeedRepository) {
             }
             // Only a genuinely empty server response exhausts pagination. Client-side
             // freshness, safety and media validation may filter an otherwise full page.
-            if (rawReceived == 0 && errors == 0) exhausted = true
+            if (rawReceived == 0 && successfulBatches > 0 && errors == 0) exhausted = true
             if (items.isEmpty()) {
-                error = if (errors == batches.size) {
+                error = if (successfulBatches == 0) {
                     "Could not reach the feed. Check your connection and try again."
                 } else if (seen.isNotEmpty()) {
                     "You've caught up with the current batch. Reset viewed history or refresh for new posts."
