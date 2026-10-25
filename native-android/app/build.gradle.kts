@@ -26,9 +26,28 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 20002
-        versionName = "2.2.0-native-test"
+        versionName = "2.2.0"
         buildConfigField("String", "SUPABASE_URL", quoted(apiUrl))
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", quoted(publishableKey))
+    }
+    // Signing material is provided only by the private release workflow.
+    // Debug CI builds never require a signing secret.
+    val releaseStore = System.getenv("MIXDOWN_RELEASE_KEYSTORE")
+    val releaseStorePassword = System.getenv("MIXDOWN_RELEASE_KEYSTORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("MIXDOWN_RELEASE_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("MIXDOWN_RELEASE_KEY_PASSWORD")
+    val privateSigningConfigured = listOf(
+        releaseStore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+    ).all { !it.isNullOrBlank() }
+    if (privateSigningConfigured) {
+        signingConfigs {
+            create("privateRelease") {
+                storeFile = file(checkNotNull(releaseStore))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
@@ -36,9 +55,12 @@ android {
             // beside 2.1 rather than forcing an uninstall and losing local saves.
             applicationIdSuffix = ".beta"
             versionNameSuffix = "-beta"
+            resValue("string", "mixdown_app_name", "Mixdown Beta")
         }
         release {
             isMinifyEnabled = false
+            resValue("string", "mixdown_app_name", "Mixdown")
+            if (privateSigningConfigured) signingConfig = signingConfigs.getByName("privateRelease")
         }
     }
     buildFeatures {

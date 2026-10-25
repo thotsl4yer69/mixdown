@@ -13,6 +13,12 @@ import java.net.URL
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
+/** A server page can have fewer usable items than the number of rows retrieved. */
+data class FeedBatch(val items: List<FeedItem>, val received: Int) {
+    init { require(received >= items.size) { "The number of accepted rows cannot exceed raw rows" } }
+    fun nextOffset(currentOffset: Int): Int = currentOffset + received
+}
+
 class FeedRepository(context: Context) {
     private val storage = context.getSharedPreferences("mixdown_2", Context.MODE_PRIVATE)
 
@@ -116,7 +122,7 @@ class FeedRepository(context: Context) {
         put("body", blocks)
     }
 
-    suspend fun fetch(kind: String, offset: Int, limit: Int = 45): List<FeedItem> =
+    suspend fun fetch(kind: String, offset: Int, limit: Int = 45): FeedBatch =
         withContext(Dispatchers.IO) {
             val cutoff = Instant.now().minus(30, ChronoUnit.DAYS)
             val endpoint = Uri.parse(BuildConfig.SUPABASE_URL + "/rest/v1/items")
@@ -165,7 +171,7 @@ class FeedRepository(context: Context) {
             if (fetchedOnline && offset == 0) {
                 storage.edit().putString(cacheKey, body).apply()
             }
-            (0 until parsed.length()).mapNotNull { index ->
+            val items = (0 until parsed.length()).mapNotNull { index ->
                 parsed.optJSONObject(index)?.toItem()
             }.filter { item ->
                 item.isNsfw == nsfw &&
@@ -176,6 +182,9 @@ class FeedRepository(context: Context) {
                             !published.isAfter(Instant.now().plus(1, ChronoUnit.DAYS))
                     }.getOrDefault(false)
             }
+            // Advance by rows returned from PostgREST, not items that survived local validation.
+            // Otherwise a filtered media item causes the same backend page to be requested again.
+            FeedBatch(items, parsed.length())
         }
 
     private fun JSONObject.toItem(): FeedItem {
