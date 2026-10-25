@@ -5,6 +5,7 @@ import { peertubeAdapter } from "./adapters/peertube.ts";
 import { redditAdapter } from "./adapters/reddit.ts";
 import { youtubeAdapter, youtubeResolutions } from "./adapters/youtube.ts";
 import { newsApiAdapter } from "./adapters/newsapi.ts";
+import { directAdapter } from "./adapters/direct.ts";
 import { embedText } from "./lib/extract.ts";
 
 const ADAPTERS: Record<string, Adapter> = {
@@ -13,28 +14,7 @@ const ADAPTERS: Record<string, Adapter> = {
   reddit: redditAdapter,
   youtube: youtubeAdapter,
   newsapi: newsApiAdapter,
-  direct: {
-    // A 'direct' source is a single fixed media URL. Polling it re-asserts the
-    // row rather than discovering anything, which is what makes it useful as a
-    // playback smoke test.
-    fetch(source: SourceRow): Promise<DraftItem[]> {
-      const url = String(source.config.url ?? "");
-      if (!url) throw new Error("direct source missing config.url");
-      return Promise.resolve([
-        {
-          external_id: url,
-          kind: "video",
-          title: String(source.config.title ?? source.label),
-          permalink: url,
-          published_at: new Date().toISOString(),
-          is_nsfw: source.is_nsfw,
-          media_url: url,
-          media_kind: (source.config.media_kind as "mp4" | "hls") ?? "mp4",
-          poster_url: (source.config.poster_url as string) ?? null,
-        },
-      ]);
-    },
-  },
+  direct: directAdapter,
 };
 
 /**
