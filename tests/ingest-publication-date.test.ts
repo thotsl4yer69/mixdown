@@ -19,6 +19,10 @@ test("only real publication dates are accepted; ingestion is never used as fallb
   assert.equal(sourcePublishedAt("", now), null);
   assert.equal(sourcePublishedAt("not a date", now), null);
   assert.equal(sourcePublishedAt("yesterday", now), null);
+  assert.equal(sourcePublishedAt("2026-02-30T12:00:00Z", now), null);
+  assert.equal(sourcePublishedAt("2024-02-29T12:00:00Z", now), "2024-02-29T12:00:00.000Z");
+  assert.equal(sourcePublishedAt("2025-02-29T12:00:00Z", now), null);
+  assert.equal(sourcePublishedAt("2026-13-01T12:00:00Z", now), null);
   assert.equal(sourcePublishedAt("2030-01-01T00:00:00Z", now), null);
   assert.equal(sourcePublishedAt("2020-10-08T20:50:55Z", now), "2020-10-08T20:50:55.000Z");
   assert.equal(sourcePublishedAt("Fri, 24 Oct 2025 15:30:00 GMT", now), "2025-10-24T15:30:00.000Z");
