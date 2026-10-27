@@ -130,7 +130,7 @@ class FeedRepository(context: Context) {
             // providers could be fetched, even when those providers had fresh clips.
             val mixedAdultVideos = nsfw && kind == "video"
             val endpoint = Uri.parse(BuildConfig.SUPABASE_URL +
-                if (mixedAdultVideos) "/rest/v1/rpc/get_mixed_nsfw_video_page" else "/rest/v1/items")
+                (if (mixedAdultVideos) "/rest/v1/rpc/get_mixed_nsfw_video_page" else "/rest/v1/items"))
                 .buildUpon()
                 .appendQueryParameter(
                     "select",
