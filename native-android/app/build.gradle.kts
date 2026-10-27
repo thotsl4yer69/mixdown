@@ -53,9 +53,9 @@ android {
         debug {
             // CI debug keystores are ephemeral; install the new user-test build
             // beside 2.1 rather than forcing an uninstall and losing local saves.
-            applicationIdSuffix = ".beta"
+            applicationIdSuffix = ".beta23"
             versionNameSuffix = "-beta"
-            resValue("string", "mixdown_app_name", "Mixdown Beta")
+            resValue("string", "mixdown_app_name", "Mixdown 2.3 Beta")
         }
         release {
             isMinifyEnabled = false
