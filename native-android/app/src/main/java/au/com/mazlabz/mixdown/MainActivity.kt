@@ -237,6 +237,8 @@ private class MixdownStore(private val repo: FeedRepository) {
     fun updateNsfw(next: Boolean) {
         nsfw = next
         repo.setNsfw(next)
+        // Adult sources currently contain videos; never retain Stories and render an empty pool.
+        filter = FeedFilter.ALL
         saved = repo.savedItems()
         all.clear()
         items.clear()
@@ -455,25 +457,37 @@ private fun MixdownScreen(store: MixdownStore) {
             }
         }
 
-        Row(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
-                .navigationBarsPadding().padding(start = 14.dp, end = 14.dp, bottom = 18.dp, top = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FeedFilter.entries.forEach { option ->
-                val selected = store.filter == option
-                Box(
-                    modifier = Modifier.weight(1f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(if (selected) Accent else Panel)
-                        .clickable { store.select(option) }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(option.title, fontSize = 12.sp,
-                        color = if (selected) Ink else TextDim,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        if (store.nsfw) {
+            Box(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
+                    .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("ADULT FEED  •  SWIPE TO EXPLORE", color = TextDim,
+                    fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            }
+        } else {
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
+                    .navigationBarsPadding().padding(start = 14.dp, end = 14.dp, bottom = 18.dp, top = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FeedFilter.entries.forEach { option ->
+                    val selected = store.filter == option
+                    Box(
+                        modifier = Modifier.weight(1f)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(if (selected) Accent else Panel)
+                            .clickable { store.select(option) }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(option.title, fontSize = 12.sp,
+                            color = if (selected) Ink else TextDim,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                    }
                 }
             }
         }
