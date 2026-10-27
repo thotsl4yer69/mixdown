@@ -46,13 +46,17 @@ data class Taste(
     val tech: Float = 0.80f,
     val entertainment: Float = 0.85f,
     val comedy: Float = 0.85f,
-    val shorts: Float = 0.95f
+    val shorts: Float = 0.95f,
+    val news: Float = 0.78f,
+    val gaming: Float = 0.88f
 ) {
     fun weight(item: FeedItem): Double = when (item.bucket) {
-        "software-depth", "making", "science", "language", "news-analysis" -> tech.toDouble()
-        "entertainment", "visual-culture" -> entertainment.toDouble()
-        "internet", "quick-hits" -> comedy.toDouble()
-        else -> 0.50
+        "software-depth", "making", "science", "language" -> tech.toDouble()
+        "news-analysis", "australia" -> news.toDouble()
+        "entertainment", "music", "visual-culture" -> entertainment.toDouble()
+        "gaming" -> gaming.toDouble()
+        "internet", "quick-hits", "comedy" -> comedy.toDouble()
+        else -> 0.55
     }
 }
 
