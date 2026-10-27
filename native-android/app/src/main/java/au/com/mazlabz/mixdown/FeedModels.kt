@@ -79,7 +79,7 @@ object FeedRanker {
                 .thenByDescending { it.ingestedAt }
                 .thenBy { it.id }
         )
-        if (filter != FeedFilter.ALL) return sorted
+        if (filter == FeedFilter.VIDEOS || filter == FeedFilter.ARTICLES) return diversifySources(sorted)
 
         val videos = ArrayDeque(diversifySources(sorted.filter { it.playable }))
         val articles = ArrayDeque(diversifySources(sorted.filter { it.kind == "article" }))
