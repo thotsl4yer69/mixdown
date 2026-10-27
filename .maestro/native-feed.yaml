@@ -1,0 +1,33 @@
+appId: au.com.mazlabz.mixdown.beta
+name: Native editorial feed, bookmark persistence and headlines
+tags:
+  - smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Videos"
+    timeout: 30000
+- assertVisible: "MIX"
+- assertVisible: "DOWN"
+- assertVisible: "Headlines"
+- assertNotVisible: "Nothing to scroll yet"
+- assertNotVisible: "Social"
+- tapOn: "SAVE"
+- tapOn: "Open saved library"
+- assertVisible: "SAVED / MIXDOWN"
+- assertNotVisible: "Nothing saved yet"
+- tapOn: "Close saved library"
+# A process restart must not clear the native saved-item store.
+- launchApp
+- extendedWaitUntil:
+    visible: "Videos"
+    timeout: 30000
+- tapOn: "Open saved library"
+- assertVisible: "SAVED / MIXDOWN"
+- assertNotVisible: "Nothing saved yet"
+- tapOn: "Close saved library"
+- tapOn: "Headlines"
+- extendedWaitUntil:
+    visible: "READ STORY"
+    timeout: 30000
