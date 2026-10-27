@@ -43,7 +43,7 @@ class FeedRepository(context: Context) {
     }.getOrDefault(FeedMode.BALANCED)
         private set
 
-    fun setMode(next: FeedMode) {
+    fun chooseMode(next: FeedMode) {
         mode = next
         storage.edit().putString("feed_mode", next.name).apply()
     }
