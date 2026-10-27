@@ -26,7 +26,9 @@ class FeedRepository(context: Context) {
         tech = storage.getFloat("taste_tech", 0.80f),
         entertainment = storage.getFloat("taste_entertainment", 0.85f),
         comedy = storage.getFloat("taste_comedy", 0.85f),
-        shorts = storage.getFloat("taste_shorts", 0.95f)
+        shorts = storage.getFloat("taste_shorts", 0.95f),
+        news = storage.getFloat("taste_news", 0.78f),
+        gaming = storage.getFloat("taste_gaming", 0.88f)
     )
         private set
 
@@ -76,7 +78,9 @@ class FeedRepository(context: Context) {
         storage.edit().putFloat("taste_tech", next.tech)
             .putFloat("taste_entertainment", next.entertainment)
             .putFloat("taste_comedy", next.comedy)
-            .putFloat("taste_shorts", next.shorts).apply()
+            .putFloat("taste_shorts", next.shorts)
+            .putFloat("taste_news", next.news)
+            .putFloat("taste_gaming", next.gaming).apply()
     }
 
     fun setMuted(next: Boolean) {
