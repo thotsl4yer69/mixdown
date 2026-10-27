@@ -146,6 +146,7 @@ async function fetchBluesky(source: any): Promise<any[]> {
   for (const entry of json.feed ?? []) {
     const post = entry.post;
     if (!post?.uri || !post?.record) continue;
+    if (source.config.max_age_days && Date.parse(post.record.createdAt ?? post.indexedAt ?? '') < Date.now() - Number(source.config.max_age_days)*86400000) continue;
     const labels = [...(post.labels ?? []), ...(post.author?.labels ?? [])].map((l: any) => String(l.val ?? "").toLowerCase());
     if (!source.is_nsfw && labels.some((v: string) => /porn|sexual|nudity|graphic-media/.test(v))) continue;
     if (source.config.adult_labels_only && !labels.some((v: string) => /^(porn|sexual|nudity)$/.test(v))) continue;
@@ -197,6 +198,8 @@ async function fetchMastodon(source: any): Promise<any[]> {
   for (const raw of statuses ?? []) {
     const status = raw.reblog ?? raw;
     if (!status?.id || !status?.url) continue;
+    if (source.config.language && status.language && !String(status.language).startsWith(String(source.config.language))) continue;
+    if (source.config.max_age_days && Date.parse(status.created_at ?? '') < Date.now() - Number(source.config.max_age_days)*86400000) continue;
     if (!source.is_nsfw && status.sensitive) continue;
     if (source.config.sensitive_only && !status.sensitive) continue;
     const attachments = status.media_attachments ?? [];
@@ -398,9 +401,29 @@ async function persist(db: any, source: any, drafts: any[]): Promise<number> {
     });
   }
   if (!rows.length) return 0;
-  const { error } = await db.from("items").upsert(rows, { onConflict: "content_key", ignoreDuplicates: true });
-  if (error) throw new Error(`items upsert: ${error.message}`);
-  return rows.length;
+  // One malformed upstream post must not poison the entire provider feed.
+  // Chunk inserts; on failure, isolate only the individual bad record.
+  let written = 0;
+  let rejected = 0;
+  for (let offset = 0; offset < rows.length; offset += 12) {
+    const chunk = rows.slice(offset, offset + 12);
+    const { error } = await db.from("items").upsert(chunk, {
+      onConflict: "content_key", ignoreDuplicates: true,
+    });
+    if (!error) { written += chunk.length; continue; }
+    for (const row of chunk) {
+      const { error: singleError } = await db.from("items").upsert(row, {
+        onConflict: "content_key", ignoreDuplicates: true,
+      });
+      if (singleError) {
+        rejected++;
+        console.warn(`[ingest-shorts] skipping invalid item ${String(row.external_id).slice(0,100)}: ${singleError.message}`);
+      } else written++;
+    }
+  }
+  if (rejected) console.warn(`[ingest-shorts] skipped ${rejected}/${rows.length} malformed or conflicting posts`);
+  if (!written && rejected) throw new Error(`No valid items; ${rejected} failed database validation`);
+  return written;
 }
 
 Deno.serve(async (req: Request) => {
