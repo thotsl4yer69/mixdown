@@ -25,8 +25,8 @@ android {
         applicationId = "au.com.mazlabz.mixdown"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20002
-        versionName = "2.2.0"
+        versionCode = 20003
+        versionName = "2.3.0"
         buildConfigField("String", "SUPABASE_URL", quoted(apiUrl))
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", quoted(publishableKey))
     }
