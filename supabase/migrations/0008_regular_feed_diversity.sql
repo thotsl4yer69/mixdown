@@ -43,6 +43,16 @@ where not exists (select 1 from public.sources s where s.label=v.label);
 update public.sources set enabled=false,health_status='disabled'
 where label in ('PeerTube newest shorts','Framatube short videos','P2Tube short videos','SkyTok video feed');
 
+-- ABC top-stories endpoint currently serves stale October articles despite HTTP 200.
+-- Do not burn ingestion slots on it until a verified fresh ABC feed is available.
+update public.sources set enabled=false,health_status='disabled'
+where label='ABC Australia'
+  and not exists (
+    select 1 from public.items i
+    where i.source_id=public.sources.id
+      and i.published_at>now()-interval '10 days'
+  );
+
 -- Source categorisation remains independent of video/article format.
 update public.sources set default_bucket='australia'
 where label in ('ABC Australia','Guardian Australia','The Age Australia','The Conversation Australia');
