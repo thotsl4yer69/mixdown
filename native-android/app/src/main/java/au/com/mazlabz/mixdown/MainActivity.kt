@@ -205,10 +205,10 @@ private class MixdownStore(private val repo: FeedRepository) {
         items.addAll(FeedRanker.rank(all, taste, filter, mode, repo.feedbackWeights()))
     }
 
-    fun setMode(next: FeedMode) {
+    fun chooseMode(next: FeedMode) {
         if (mode == next) return
         mode = next
-        repo.setMode(next)
+        repo.chooseMode(next)
         val ranked = FeedRanker.rank(all, taste, filter, mode, repo.feedbackWeights())
         items.clear()
         items.addAll(ranked)
@@ -440,7 +440,7 @@ private fun MixdownScreen(store: MixdownStore) {
                     Box(
                         Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
                             .background(if (selected) Mint else Color(0xDA222831))
-                            .clickable { store.setMode(option) }
+                            .clickable { store.chooseMode(option) }
                             .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
