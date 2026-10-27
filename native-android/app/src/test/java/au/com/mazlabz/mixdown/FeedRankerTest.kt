@@ -110,4 +110,28 @@ class FeedRankerTest {
         assertEquals(input.map { it.id }, FeedRanker.diversifySources(input).map { it.id })
     }
 
+
+    @Test fun nsfwVideosTabDoesNotHideOtherPublishersBehindRedgifs() {
+        val redgifs = (1..8).map { index ->
+            item("red" + index, "video").copy(
+                permalink = "https://www.redgifs.com/watch/" + index,
+                quality = 1.0, visual = 1.0, engagement = 1.0,
+                isNsfw = true
+            )
+        }
+        val bluesky = item("bluesky", "video").copy(
+            permalink = "https://bsky.app/profile/creator/post/123",
+            quality = 0.3, visual = 0.3, engagement = 0.3,
+            isNsfw = true
+        )
+        val mastodon = item("mastodon", "video").copy(
+            permalink = "https://thicc.horse/@creator/123",
+            quality = 0.3, visual = 0.3, engagement = 0.3,
+            isNsfw = true
+        )
+        val ranked = FeedRanker.rank(redgifs + bluesky + mastodon, Taste(), FeedFilter.VIDEOS)
+        assertEquals(10, ranked.size)
+        assertTrue(ranked.take(5).any { it.id == "bluesky" })
+        assertTrue(ranked.take(5).any { it.id == "mastodon" })
+    }
 }

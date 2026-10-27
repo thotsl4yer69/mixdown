@@ -125,22 +125,34 @@ class FeedRepository(context: Context) {
     suspend fun fetch(kind: String, offset: Int, limit: Int = 45): FeedBatch =
         withContext(Dispatchers.IO) {
             val cutoff = Instant.now().minus(30, ChronoUnit.DAYS)
-            val endpoint = Uri.parse(BuildConfig.SUPABASE_URL + "/rest/v1/items")
+            // NSFW videos use a server-side round-robin page across actual publishers.
+            // A straight published_at query filled every page with RedGIFs before other
+            // providers could be fetched, even when those providers had fresh clips.
+            val mixedAdultVideos = nsfw && kind == "video"
+            val endpoint = Uri.parse(BuildConfig.SUPABASE_URL +
+                (if (mixedAdultVideos) "/rest/v1/rpc/get_mixed_nsfw_video_page" else "/rest/v1/items"))
                 .buildUpon()
                 .appendQueryParameter(
                     "select",
                     "id,kind,title,author,permalink,published_at,ingested_at,bucket,is_nsfw," +
                     "media_url,media_kind,poster_url,excerpt,body,quality_score,visual_score,engagement_score"
                 )
-                .appendQueryParameter("is_nsfw", "eq." + nsfw)
-                .appendQueryParameter("kind", "eq." + kind)
-                // A newly ingested archive item is not recent content.
-                .appendQueryParameter("published_at", "gte." + cutoff.toString())
-                .appendQueryParameter("order", "published_at.desc")
-                .appendQueryParameter("limit", limit.toString())
-                .appendQueryParameter("offset", offset.toString())
+                .apply {
+                    if (mixedAdultVideos) {
+                        appendQueryParameter("p_limit", limit.toString())
+                        appendQueryParameter("p_offset", offset.toString())
+                    } else {
+                        appendQueryParameter("is_nsfw", "eq." + nsfw)
+                        appendQueryParameter("kind", "eq." + kind)
+                        // A newly ingested archive item is not recent content.
+                        appendQueryParameter("published_at", "gte." + cutoff.toString())
+                        appendQueryParameter("order", "published_at.desc")
+                        appendQueryParameter("limit", limit.toString())
+                        appendQueryParameter("offset", offset.toString())
+                    }
+                }
                 .build()
-            val cacheKey = "cache_published_v3_" + nsfw + "_" + kind
+            val cacheKey = "cache_published_v4_" + nsfw + "_" + kind
             var fetchedOnline = false
             val body = try {
                 val conn = URL(endpoint.toString()).openConnection() as HttpURLConnection
