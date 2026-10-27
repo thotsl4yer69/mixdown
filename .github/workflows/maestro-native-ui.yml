@@ -1,0 +1,61 @@
+name: Mixdown native Maestro UI acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native-android/**'
+      - '.maestro/**'
+      - '.github/scripts/maestro-native-smoke.sh'
+      - '.github/workflows/maestro-native-ui.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mixdown-maestro-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  maestro-native-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Install Android SDK platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:?Android SDK missing}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" || test -d "$SDK_ROOT/platforms/android-35"
+          if test -e /dev/kvm; then sudo chmod 666 /dev/kvm || true; fi
+      - name: Compile native Android APK
+        run: gradle --project-dir native-android :app:assembleDebug --no-daemon
+      - name: Exercise installed APK with free Maestro CLI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: default
+          profile: pixel_6
+          disable-animations: true
+          script: bash .github/scripts/maestro-native-smoke.sh
+      - name: Preserve screenshots and device diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixdown-maestro-ui-evidence
+          path: native-android/maestro-output/
+          if-no-files-found: warn
+          retention-days: 14
