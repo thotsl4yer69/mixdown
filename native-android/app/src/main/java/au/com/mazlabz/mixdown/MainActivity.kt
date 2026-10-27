@@ -792,16 +792,22 @@ private fun SettingsDialog(
             Text("Choose Balanced, Latest or Explore from the top bar. Tap MORE or LESS on a post to train your recommendations, then fine-tune topics below.",
                 color = TextDim, lineHeight = 22.sp)
             Spacer(Modifier.height(32.dp))
-            TasteSlider("TECH & LEARNING", store.taste.tech) {
+            TasteSlider("TECH & MAKING", store.taste.tech) {
                 store.updateTaste(store.taste.copy(tech = it))
             }
-            TasteSlider("ENTERTAINMENT & FUN", store.taste.entertainment) {
+            TasteSlider("NEWS & AUSTRALIA", store.taste.news) {
+                store.updateTaste(store.taste.copy(news = it))
+            }
+            TasteSlider("MUSIC & CULTURE", store.taste.entertainment) {
                 store.updateTaste(store.taste.copy(entertainment = it))
             }
-            TasteSlider("COMEDY & ZINES", store.taste.comedy) {
+            TasteSlider("GAMING & FANDOM", store.taste.gaming) {
+                store.updateTaste(store.taste.copy(gaming = it))
+            }
+            TasteSlider("COMEDY & INTERNET", store.taste.comedy) {
                 store.updateTaste(store.taste.copy(comedy = it))
             }
-            TasteSlider("SHORTS & REELS", store.taste.shorts) {
+            TasteSlider("WATCH / VIDEOS", store.taste.shorts) {
                 store.updateTaste(store.taste.copy(shorts = it))
             }
             Spacer(Modifier.height(10.dp))
