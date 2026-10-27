@@ -4,7 +4,7 @@
 set -euo pipefail
 
 OUTPUT="native-android/smoke-output"
-PACKAGE="au.com.mazlabz.mixdown.beta"
+PACKAGE="au.com.mazlabz.mixdown.beta23"
 mkdir -p "$OUTPUT"
 
 capture_diagnostics() {
@@ -87,8 +87,8 @@ if grep -Fq 'Nothing to scroll yet' "$OUTPUT/window.xml"; then
   echo "::error::Native UI loads, but the real Supabase-backed scroll feed is empty"
   exit 1
 fi
-if ! grep -Fq 'text="Videos"' "$OUTPUT/window.xml" || ! grep -Fq 'text="Headlines"' "$OUTPUT/window.xml"; then
-  echo "::error::Expected For you / Videos / Headlines navigation is missing"
+if ! grep -Fq 'text="Watch"' "$OUTPUT/window.xml" || ! grep -Fq 'text="Stories"' "$OUTPUT/window.xml"; then
+  echo "::error::Expected Your Mix / Watch / Stories navigation is missing"
   exit 1
 fi
 if grep -Fq 'text="Social"' "$OUTPUT/window.xml"; then
@@ -159,7 +159,7 @@ if grep -Fq 'Nothing saved yet' "$OUTPUT/window.xml"; then
 fi
 tap_accessible "Close saved library"
 
-# The Headlines tab must offer actual readable articles.
+# The Stories tab must offer actual readable articles.
 tap_text() {
   local label="$1"
   adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
@@ -185,11 +185,11 @@ PY
   sleep 2
 }
 
-tap_text "Headlines"
+tap_text "Stories"
 adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
 adb pull /sdcard/window.xml "$OUTPUT/window.xml" >/dev/null 2>&1
 if ! grep -Fq 'READ STORY' "$OUTPUT/window.xml"; then
-  echo "::error::Headlines tab does not show a readable story"
+  echo "::error::Stories tab does not show a readable story"
   exit 1
 fi
 capture_diagnostics

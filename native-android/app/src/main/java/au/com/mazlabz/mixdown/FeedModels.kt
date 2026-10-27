@@ -28,25 +28,35 @@ data class FeedItem(
 }
 
 enum class FeedFilter(val title: String) {
-    ALL("For you"), VIDEOS("Videos"), ARTICLES("Headlines");
+    ALL("Your Mix"), VIDEOS("Watch"), ARTICLES("Stories");
     fun accepts(item: FeedItem): Boolean = when (this) {
-        ALL -> item.playable || item.kind == "article"
+        ALL -> item.playable || item.kind == "article" || item.kind == "social"
         VIDEOS -> item.playable
         ARTICLES -> item.kind == "article"
     }
+}
+
+enum class FeedMode(val title: String, val hint: String) {
+    BALANCED("Balanced", "A varied selection of topics and publishers"),
+    LATEST("Latest", "Recently published stories and videos first"),
+    EXPLORE("Explore", "Less repetition and more unexpected discoveries")
 }
 
 data class Taste(
     val tech: Float = 0.80f,
     val entertainment: Float = 0.85f,
     val comedy: Float = 0.85f,
-    val shorts: Float = 0.95f
+    val shorts: Float = 0.95f,
+    val news: Float = 0.78f,
+    val gaming: Float = 0.88f
 ) {
     fun weight(item: FeedItem): Double = when (item.bucket) {
-        "software-depth", "making", "science", "language", "news-analysis" -> tech.toDouble()
-        "entertainment", "visual-culture" -> entertainment.toDouble()
-        "internet", "quick-hits" -> comedy.toDouble()
-        else -> 0.50
+        "software-depth", "making", "science", "language" -> tech.toDouble()
+        "news-analysis", "australia" -> news.toDouble()
+        "entertainment", "music", "visual-culture" -> entertainment.toDouble()
+        "gaming" -> gaming.toDouble()
+        "internet", "quick-hits", "comedy" -> comedy.toDouble()
+        else -> 0.55
     }
 }
 
@@ -72,78 +82,106 @@ object FeedBackfill {
 }
 
 object FeedRanker {
-    fun rank(items: List<FeedItem>, taste: Taste, filter: FeedFilter): List<FeedItem> {
+    fun rank(
+        items: List<FeedItem>,
+        taste: Taste,
+        filter: FeedFilter,
+        mode: FeedMode = FeedMode.BALANCED,
+        feedback: Map<String, Float> = emptyMap()
+    ): List<FeedItem> {
         val distinct = items.distinctBy { it.id }.filter { filter.accepts(it) }
-        val sorted = distinct.sortedWith(
-            compareByDescending<FeedItem> { score(it, taste) }
-                .thenByDescending { it.ingestedAt }
-                .thenBy { it.id }
-        )
-        if (filter == FeedFilter.VIDEOS || filter == FeedFilter.ARTICLES) return diversifySources(sorted)
+        val sorted = if (mode == FeedMode.LATEST) {
+            distinct.sortedWith(compareByDescending<FeedItem> { it.publishedAt }.thenBy { it.id })
+        } else {
+            distinct.sortedWith(
+                compareByDescending<FeedItem> { score(it, taste, mode, feedback) }
+                    .thenByDescending { it.publishedAt }
+                    .thenBy { it.id }
+            )
+        }
+        if (filter != FeedFilter.ALL) return if (mode == FeedMode.LATEST) sorted else diversifySources(sorted)
 
-        val videos = ArrayDeque(diversifySources(sorted.filter { it.playable }))
-        val articles = ArrayDeque(diversifySources(sorted.filter { it.kind == "article" }))
-        // Social ingestion is currently stale. Keep it out of the primary navigation
-        // until fresh, properly attributed community items can be guaranteed.
-        val cycle = listOf(videos, articles, videos, articles, videos)
+        fun order(pool: List<FeedItem>): List<FeedItem> =
+            if (mode == FeedMode.LATEST) pool else diversifySources(pool)
+        val videos = ArrayDeque(order(sorted.filter { it.playable }))
+        val articles = ArrayDeque(order(sorted.filter { it.kind == "article" }))
+        val social = ArrayDeque(order(sorted.filter { it.kind == "social" && isFreshSocial(it) }))
+        // One community post every few cards, but never an endless social archive.
+        val cycle = when (mode) {
+            FeedMode.LATEST -> listOf(videos, articles, social, videos, articles)
+            FeedMode.EXPLORE -> listOf(articles, videos, social, articles, videos)
+            else -> listOf(videos, articles, videos, social, articles)
+        }
         val result = ArrayList<FeedItem>(sorted.size)
-        while (videos.isNotEmpty() || articles.isNotEmpty()) {
+        while (videos.isNotEmpty() || articles.isNotEmpty() || social.isNotEmpty()) {
             var progress = false
             for (pool in cycle) {
-                if (pool.isNotEmpty()) {
-                    result.add(pool.removeFirst())
-                    progress = true
-                }
+                if (pool.isNotEmpty()) { result.add(pool.removeFirst()); progress = true }
             }
             if (!progress) break
         }
         return result
     }
 
-    // Do not interleave weeks-old community posts into a supposedly current
-    // For You feed. The dedicated Social tab still exposes the full archive.
     internal fun isFreshSocial(item: FeedItem, now: Instant = Instant.now()): Boolean =
         runCatching {
-            val age = java.time.Duration.between(Instant.parse(item.ingestedAt), now)
-            !age.isNegative && age.toDays() < 14
+            val age = java.time.Duration.between(Instant.parse(item.publishedAt), now)
+            !age.isNegative && age.toDays() < 10
         }.getOrDefault(false)
 
-    // Interleave publishers within each content pool while preserving each publisher's ranking.
-    // Remaining items from one source still appear rather than being silently dropped.
+    /** Avoid near-repeat publishers and topics across a rolling four-card window. */
     internal fun diversifySources(items: List<FeedItem>): List<FeedItem> {
         val pending = items.toMutableList()
         val output = ArrayList<FeedItem>(pending.size)
-        var previousSource: String? = null
+        val recentSources = ArrayDeque<String>()
+        val recentTopics = ArrayDeque<String>()
         while (pending.isNotEmpty()) {
-            val nextIndex = pending.indexOfFirst { sourceKey(it) != previousSource }
-                .let { if (it < 0) 0 else it }
+            val preferred = pending.indexOfFirst {
+                sourceKey(it) !in recentSources && it.bucket !in recentTopics
+            }
+            val nextIndex = if (preferred >= 0) preferred else {
+                val differentSource = pending.indexOfFirst { sourceKey(it) !in recentSources }
+                if (differentSource >= 0) differentSource else {
+                    pending.indexOfFirst { it.bucket !in recentTopics }.coerceAtLeast(0)
+                }
+            }
             val next = pending.removeAt(nextIndex)
             output.add(next)
-            previousSource = sourceKey(next)
+            recentSources.addLast(sourceKey(next))
+            recentTopics.addLast(next.bucket)
+            while (recentSources.size > 3) recentSources.removeFirst()
+            while (recentTopics.size > 3) recentTopics.removeFirst()
         }
         return output
     }
 
-    private fun sourceKey(item: FeedItem): String {
-        val host = runCatching { java.net.URI(item.permalink).host }
-            .getOrNull()?.lowercase()?.removePrefix("www.")
-        return host?.takeIf { it.isNotBlank() }
+    internal fun sourceKey(item: FeedItem): String =
+        runCatching { java.net.URI(item.permalink).host }.getOrNull()
+            ?.lowercase()?.removePrefix("www.")?.takeIf { it.isNotBlank() }
             ?: item.author.ifBlank { item.id }
-    }
 
-    internal fun score(item: FeedItem, taste: Taste): Double {
-        val videoBoost = if (item.playable) taste.shorts.toDouble() * 0.90 else 0.0
-        val topicBoost = taste.weight(item) * 1.25
-        val quality = item.quality.coerceIn(0.0, 1.0) * 0.24 +
-            item.visual.coerceIn(0.0, 1.0) * 0.24 +
+    internal fun score(
+        item: FeedItem,
+        taste: Taste,
+        mode: FeedMode = FeedMode.BALANCED,
+        feedback: Map<String, Float> = emptyMap()
+    ): Double {
+        val videoBoost = if (item.playable) taste.shorts.toDouble() * 0.75 else 0.0
+        val topicBoost = taste.weight(item) * 0.95
+        val personal = (feedback["topic:" + item.bucket] ?: 0f).toDouble() * 1.2 +
+            (feedback["source:" + sourceKey(item)] ?: 0f).toDouble() * 0.7
+        val quality = item.quality.coerceIn(0.0, 1.0) * 0.28 +
+            item.visual.coerceIn(0.0, 1.0) * 0.2 +
             item.engagement.coerceIn(0.0, 1.0) * 0.18
-        // Actual publication time, NEVER ingestion time. Discovering an
-        // archived clip today doesn't make it a new video.
+        // Actual publication time; discovering an archived clip does not make it fresh.
         val ageHours = runCatching {
             (System.currentTimeMillis() - Instant.parse(item.publishedAt).toEpochMilli()) / 3600000.0
         }.getOrDefault(24.0 * 365.0)
-        // A daily feed should reward genuinely new discoveries, not just historic popularity.
-        val fresh = 1.25 / (1.0 + max(0.0, ageHours) / 24.0)
-        return videoBoost + topicBoost + quality + fresh
+        val fresh = when (mode) {
+            FeedMode.LATEST -> 3.0 / (1.0 + max(0.0, ageHours) / 8.0)
+            FeedMode.EXPLORE -> 0.8 / (1.0 + max(0.0, ageHours) / 72.0)
+            else -> 1.35 / (1.0 + max(0.0, ageHours) / 30.0)
+        }
+        return videoBoost + topicBoost + personal + quality + fresh
     }
 }

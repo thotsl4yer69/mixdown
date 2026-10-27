@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
 private class MixdownStore(private val repo: FeedRepository) {
     val items: SnapshotStateList<FeedItem> = mutableStateListOf()
     private val all = mutableListOf<FeedItem>()
-    private val offsets = mutableMapOf("video" to 0, "article" to 0)
+    private val offsets = mutableMapOf("video" to 0, "article" to 0, "social" to 0)
 
     var loading by mutableStateOf(false)
         private set
@@ -93,6 +93,10 @@ private class MixdownStore(private val repo: FeedRepository) {
     var filter by mutableStateOf(FeedFilter.ALL)
         private set
     var taste by mutableStateOf(repo.taste)
+        private set
+    var mode by mutableStateOf(repo.mode)
+        private set
+    var ratedItem by mutableStateOf<String?>(null)
         private set
     var muted by mutableStateOf(repo.muted)
         private set
@@ -120,7 +124,8 @@ private class MixdownStore(private val repo: FeedRepository) {
             val seen = repo.seenIds()
             val existing = if (reset) emptySet() else all.mapTo(HashSet()) { it.id }
             val added = ArrayList<FeedItem>()
-            val remainingKinds = mutableSetOf("video", "article")
+            val remainingKinds = if (nsfw) mutableSetOf("video")
+                else mutableSetOf("video", "article", "social")
             var successfulBatches = 0
             var errors = 0
             var rawReceived = 0
@@ -157,7 +162,7 @@ private class MixdownStore(private val repo: FeedRepository) {
                     all.clear()
                     all.addAll(newItems)
                     items.clear()
-                    items.addAll(FeedRanker.rank(all, taste, filter))
+                    items.addAll(FeedRanker.rank(all, taste, filter, mode, repo.feedbackWeights()))
                 } else if (items.isNotEmpty()) {
                     error = if (successfulBatches == 0) {
                         "Couldn't refresh. Your previous mix is still available."
@@ -167,7 +172,7 @@ private class MixdownStore(private val repo: FeedRepository) {
                 }
             } else {
                 all.addAll(newItems)
-                val ranked = FeedRanker.rank(newItems, taste, filter)
+                val ranked = FeedRanker.rank(newItems, taste, filter, mode, repo.feedbackWeights())
                 val displayed = items.mapTo(HashSet()) { it.id }
                 items.addAll(ranked.filter { it.id !in displayed })
             }
@@ -197,13 +202,29 @@ private class MixdownStore(private val repo: FeedRepository) {
         if (filter == next) return
         filter = next
         items.clear()
-        items.addAll(FeedRanker.rank(all, taste, filter))
+        items.addAll(FeedRanker.rank(all, taste, filter, mode, repo.feedbackWeights()))
+    }
+
+    fun chooseMode(next: FeedMode) {
+        if (mode == next) return
+        mode = next
+        repo.chooseMode(next)
+        val ranked = FeedRanker.rank(all, taste, filter, mode, repo.feedbackWeights())
+        items.clear()
+        items.addAll(ranked)
+    }
+
+    fun rate(item: FeedItem, more: Boolean) {
+        repo.rate(item, more)
+        ratedItem = item.id + if (more) ":more" else ":less"
+        // Leave the item being watched in place. Preferences apply to the next
+        // refresh/page and the existing content is never silently discarded.
     }
 
     fun updateTaste(next: Taste) {
         taste = next
         repo.saveTaste(next)
-        val reordered = FeedRanker.rank(all, taste, filter)
+        val reordered = FeedRanker.rank(all, taste, filter, mode, repo.feedbackWeights())
         items.clear()
         items.addAll(reordered)
     }
@@ -216,9 +237,12 @@ private class MixdownStore(private val repo: FeedRepository) {
     fun updateNsfw(next: Boolean) {
         nsfw = next
         repo.setNsfw(next)
+        // Adult sources currently contain videos; never retain Stories and render an empty pool.
+        filter = FeedFilter.ALL
         saved = repo.savedItems()
         all.clear()
         items.clear()
+        ratedItem = null
         offsets.keys.forEach { offsets[it] = 0 }
         exhausted = false
     }
@@ -343,7 +367,10 @@ private fun MixdownScreen(store: MixdownStore) {
                         onRead = { reader = item },
                         onOriginal = { openSource(context, item.permalink) },
                         onShare = { shareSource(context, item) },
-                        onSave = { store.toggleSaved(item) }
+                        onSave = { store.toggleSaved(item) },
+                        onMore = { store.rate(item, true) },
+                        onLess = { store.rate(item, false) },
+                        lastRating = store.ratedItem?.takeIf { it.startsWith(item.id + ":") }
                     )
                 } else FeedPage(
                     item = item,
@@ -357,7 +384,10 @@ private fun MixdownScreen(store: MixdownStore) {
                     onSave = { store.toggleSaved(item) },
                     saved = store.saved.any { it.id == item.id },
                     onMute = { store.updateMuted(!store.muted) },
-                    muted = store.muted
+                    muted = store.muted,
+                    onMore = { store.rate(item, true) },
+                    onLess = { store.rate(item, false) },
+                    lastRating = store.ratedItem?.takeIf { it.startsWith(item.id + ":") }
                 )
             }
         } else {
@@ -392,7 +422,8 @@ private fun MixdownScreen(store: MixdownStore) {
                 Spacer(Modifier.weight(1f))
                 Box(Modifier.size(8.dp).background(Mint, CircleShape))
                 Spacer(Modifier.width(8.dp))
-                Text("DISCOVER", fontSize = 10.sp, color = Mint, letterSpacing = 1.sp)
+                Text(if (store.nsfw) "ADULT MODE" else "DISCOVER", fontSize = 10.sp,
+                    color = if (store.nsfw) Accent else Mint, letterSpacing = 1.sp)
                 Spacer(Modifier.width(14.dp))
                 Text("★", modifier = Modifier.semantics { contentDescription = "Open saved library" }
                     .clickable { savedOpen = true }.padding(8.dp),
@@ -404,30 +435,59 @@ private fun MixdownScreen(store: MixdownStore) {
                     .clickable { settingsOpen = true }.padding(8.dp),
                     fontSize = 25.sp, color = TextBright)
             }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                FeedMode.entries.forEach { option ->
+                    val selected = store.mode == option
+                    Box(
+                        Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                            .background(if (selected) Mint else Color(0xDA222831))
+                            .clickable { store.chooseMode(option) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(option.title, fontSize = 11.sp,
+                            color = if (selected) Ink else TextBright,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                    }
+                }
+            }
             if (store.error.isNotBlank() && store.items.isNotEmpty()) {
                 Text(store.error, color = TextDim, fontSize = 11.sp, maxLines = 2)
             }
         }
 
-        Row(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
-                .navigationBarsPadding().padding(start = 14.dp, end = 14.dp, bottom = 18.dp, top = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FeedFilter.entries.forEach { option ->
-                val selected = store.filter == option
-                Box(
-                    modifier = Modifier.weight(1f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(if (selected) Accent else Panel)
-                        .clickable { store.select(option) }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(option.title, fontSize = 12.sp,
-                        color = if (selected) Ink else TextDim,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        if (store.nsfw) {
+            Box(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
+                    .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("ADULT FEED  •  SWIPE TO EXPLORE", color = TextDim,
+                    fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            }
+        } else {
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
+                    .navigationBarsPadding().padding(start = 14.dp, end = 14.dp, bottom = 18.dp, top = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FeedFilter.entries.forEach { option ->
+                    val selected = store.filter == option
+                    Box(
+                        modifier = Modifier.weight(1f)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(if (selected) Accent else Panel)
+                            .clickable { store.select(option) }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(option.title, fontSize = 12.sp,
+                            color = if (selected) Ink else TextDim,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                    }
                 }
             }
         }
@@ -479,7 +539,10 @@ private fun FeedPage(
     onSave: () -> Unit,
     saved: Boolean,
     onMute: () -> Unit,
-    muted: Boolean
+    muted: Boolean,
+    onMore: () -> Unit,
+    onLess: () -> Unit,
+    lastRating: String?
 ) {
     Box(Modifier.fillMaxSize().background(Ink)) {
         // Image underlay makes wide clips feel intentional instead of leaving
@@ -562,7 +625,9 @@ private fun FeedPage(
             }
             Text(publishedLabel(item.publishedAt),
                 color = Mint, fontSize = 12.sp, maxLines = 1)
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(9.dp))
+            PreferenceActions(onMore = onMore, onLess = onLess, lastRating = lastRating)
+            Spacer(Modifier.height(8.dp))
             if (playbackError.isNotBlank()) {
                 Text(playbackError, color = Accent, fontSize = 12.sp)
                 Spacer(Modifier.height(8.dp))
@@ -601,7 +666,10 @@ private fun HeadlinePage(
     onRead: () -> Unit,
     onOriginal: () -> Unit,
     onShare: () -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onMore: () -> Unit,
+    onLess: () -> Unit,
+    lastRating: String?
 ) {
     Box(
         Modifier.fillMaxSize().background(
@@ -652,6 +720,7 @@ private fun HeadlinePage(
                     maxLines = 4, overflow = TextOverflow.Ellipsis
                 )
             }
+            PreferenceActions(onMore = onMore, onLess = onLess, lastRating = lastRating)
             Spacer(Modifier.weight(0.35f))
             Button(
                 onClick = onRead,
@@ -677,6 +746,26 @@ private fun HeadlinePage(
                     color = TextBright, fontSize = 12.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun PreferenceActions(onMore: () -> Unit, onLess: () -> Unit, lastRating: String?) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        val moreSelected = lastRating?.endsWith(":more") == true
+        val lessSelected = lastRating?.endsWith(":less") == true
+        Text(if (moreSelected) "✓ MORE LIKE THIS" else "+ MORE",
+            modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                .background(if (moreSelected) Mint else Color(0xCC222831))
+                .clickable(onClick = onMore)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            color = if (moreSelected) Ink else TextBright, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(if (lessSelected) "✓ LESS LIKE THIS" else "− LESS",
+            modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                .background(if (lessSelected) Accent else Color(0xCC222831))
+                .clickable(onClick = onLess)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            color = if (lessSelected) Ink else TextBright, fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -714,19 +803,25 @@ private fun SettingsDialog(
                 Text("✕", Modifier.clickable(onClick = onDismiss).padding(8.dp), color = TextBright, fontSize = 22.sp)
             }
             Spacer(Modifier.height(12.dp))
-            Text("Your feed learns what you enjoy. Adjust these any time; the mix changes immediately.",
+            Text("Choose Balanced, Latest or Explore from the top bar. Tap MORE or LESS on a post to train your recommendations, then fine-tune topics below.",
                 color = TextDim, lineHeight = 22.sp)
             Spacer(Modifier.height(32.dp))
-            TasteSlider("TECH & LEARNING", store.taste.tech) {
+            TasteSlider("TECH & MAKING", store.taste.tech) {
                 store.updateTaste(store.taste.copy(tech = it))
             }
-            TasteSlider("ENTERTAINMENT & FUN", store.taste.entertainment) {
+            TasteSlider("NEWS & AUSTRALIA", store.taste.news) {
+                store.updateTaste(store.taste.copy(news = it))
+            }
+            TasteSlider("MUSIC & CULTURE", store.taste.entertainment) {
                 store.updateTaste(store.taste.copy(entertainment = it))
             }
-            TasteSlider("COMEDY & ZINES", store.taste.comedy) {
+            TasteSlider("GAMING & FANDOM", store.taste.gaming) {
+                store.updateTaste(store.taste.copy(gaming = it))
+            }
+            TasteSlider("COMEDY & INTERNET", store.taste.comedy) {
                 store.updateTaste(store.taste.copy(comedy = it))
             }
-            TasteSlider("SHORTS & REELS", store.taste.shorts) {
+            TasteSlider("WATCH / VIDEOS", store.taste.shorts) {
                 store.updateTaste(store.taste.copy(shorts = it))
             }
             Spacer(Modifier.height(10.dp))
