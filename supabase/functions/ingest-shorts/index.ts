@@ -198,7 +198,7 @@ async function fetchMastodon(source: any): Promise<any[]> {
   for (const raw of statuses ?? []) {
     const status = raw.reblog ?? raw;
     if (!status?.id || !status?.url) continue;
-    if (source.config.language && status.language && !String(status.language).startsWith(String(source.config.language))) continue;
+    if (source.config.language && !String(status.language ?? "").startsWith(String(source.config.language))) continue;
     if (source.config.max_age_days && Date.parse(status.created_at ?? '') < Date.now() - Number(source.config.max_age_days)*86400000) continue;
     if (!source.is_nsfw && status.sensitive) continue;
     if (source.config.sensitive_only && !status.sensitive) continue;
