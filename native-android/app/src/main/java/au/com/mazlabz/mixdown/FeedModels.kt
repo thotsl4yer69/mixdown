@@ -90,16 +90,22 @@ object FeedRanker {
         feedback: Map<String, Float> = emptyMap()
     ): List<FeedItem> {
         val distinct = items.distinctBy { it.id }.filter { filter.accepts(it) }
-        val sorted = distinct.sortedWith(
-            compareByDescending<FeedItem> { score(it, taste, mode, feedback) }
-                .thenByDescending { it.publishedAt }
-                .thenBy { it.id }
-        )
-        if (filter != FeedFilter.ALL) return diversifySources(sorted)
+        val sorted = if (mode == FeedMode.LATEST) {
+            distinct.sortedWith(compareByDescending<FeedItem> { it.publishedAt }.thenBy { it.id })
+        } else {
+            distinct.sortedWith(
+                compareByDescending<FeedItem> { score(it, taste, mode, feedback) }
+                    .thenByDescending { it.publishedAt }
+                    .thenBy { it.id }
+            )
+        }
+        if (filter != FeedFilter.ALL) return if (mode == FeedMode.LATEST) sorted else diversifySources(sorted)
 
-        val videos = ArrayDeque(diversifySources(sorted.filter { it.playable }))
-        val articles = ArrayDeque(diversifySources(sorted.filter { it.kind == "article" }))
-        val social = ArrayDeque(diversifySources(sorted.filter { it.kind == "social" && isFreshSocial(it) }))
+        fun order(pool: List<FeedItem>): List<FeedItem> =
+            if (mode == FeedMode.LATEST) pool else diversifySources(pool)
+        val videos = ArrayDeque(order(sorted.filter { it.playable }))
+        val articles = ArrayDeque(order(sorted.filter { it.kind == "article" }))
+        val social = ArrayDeque(order(sorted.filter { it.kind == "social" && isFreshSocial(it) }))
         // One community post every few cards, but never an endless social archive.
         val cycle = when (mode) {
             FeedMode.LATEST -> listOf(videos, articles, social, videos, articles)
@@ -123,26 +129,28 @@ object FeedRanker {
             !age.isNegative && age.toDays() < 10
         }.getOrDefault(false)
 
-    /** Greedy interleave: avoid repeating both the same publisher and topic when possible. */
+    /** Avoid near-repeat publishers and topics across a rolling four-card window. */
     internal fun diversifySources(items: List<FeedItem>): List<FeedItem> {
         val pending = items.toMutableList()
         val output = ArrayList<FeedItem>(pending.size)
-        var previousSource: String? = null
-        var previousTopic: String? = null
+        val recentSources = ArrayDeque<String>()
+        val recentTopics = ArrayDeque<String>()
         while (pending.isNotEmpty()) {
             val preferred = pending.indexOfFirst {
-                sourceKey(it) != previousSource && it.bucket != previousTopic
+                sourceKey(it) !in recentSources && it.bucket !in recentTopics
             }
             val nextIndex = if (preferred >= 0) preferred else {
-                val differentSource = pending.indexOfFirst { sourceKey(it) != previousSource }
+                val differentSource = pending.indexOfFirst { sourceKey(it) !in recentSources }
                 if (differentSource >= 0) differentSource else {
-                    pending.indexOfFirst { it.bucket != previousTopic }.coerceAtLeast(0)
+                    pending.indexOfFirst { it.bucket !in recentTopics }.coerceAtLeast(0)
                 }
             }
             val next = pending.removeAt(nextIndex)
             output.add(next)
-            previousSource = sourceKey(next)
-            previousTopic = next.bucket
+            recentSources.addLast(sourceKey(next))
+            recentTopics.addLast(next.bucket)
+            while (recentSources.size > 3) recentSources.removeFirst()
+            while (recentTopics.size > 3) recentTopics.removeFirst()
         }
         return output
     }
