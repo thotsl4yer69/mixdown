@@ -62,8 +62,8 @@ class FeedRankerTest {
         assertEquals("tech", FeedRanker.rank(listOf(play, tech), taste, FeedFilter.ARTICLES).first().id)
     }
 
-    @Test fun theMainFeedContainsOnlyPlayableVideosAndReadableArticles() {
-        assertFalse(FeedFilter.ALL.accepts(item("s", "social")))
+    @Test fun theMainFeedContainsPlayableVideosArticlesAndFreshCommunity() {
+        assertTrue(FeedFilter.ALL.accepts(item("s", "social")))
         assertFalse(FeedFilter.ALL.accepts(item("v", "video").copy(mediaUrl = "")))
         assertTrue(FeedFilter.ALL.accepts(item("v", "video")))
         assertTrue(FeedFilter.ARTICLES.accepts(item("a", "article")))
