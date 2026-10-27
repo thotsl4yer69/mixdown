@@ -36,6 +36,41 @@ class FeedRepository(context: Context) {
     var nsfw: Boolean = storage.getBoolean("nsfw", false)
         private set
 
+    var mode: FeedMode = runCatching {
+        FeedMode.valueOf(storage.getString("feed_mode", "BALANCED") ?: "BALANCED")
+    }.getOrDefault(FeedMode.BALANCED)
+        private set
+
+    fun setMode(next: FeedMode) {
+        mode = next
+        storage.edit().putString("feed_mode", next.name).apply()
+    }
+
+    /** Personal preferences are learned per content pool; no hidden fixed user tastes. */
+    fun feedbackWeights(): Map<String, Float> {
+        val prefs = storage.getString("preference_" + nsfw, "{}") ?: "{}"
+        val obj = runCatching { JSONObject(prefs) }.getOrDefault(JSONObject())
+        val result = mutableMapOf<String, Float>()
+        obj.keys().forEach { key ->
+            result[key] = obj.optDouble(key, 0.0).toFloat().coerceIn(-1.5f, 1.5f)
+        }
+        return result
+    }
+
+    fun rate(item: FeedItem, more: Boolean) {
+        require(item.isNsfw == nsfw)
+        val key = "preference_" + nsfw
+        val prefs = runCatching { JSONObject(storage.getString(key, "{}") ?: "{}") }
+            .getOrDefault(JSONObject())
+        val delta = if (more) 0.25f else -0.25f
+        val keys = listOf("topic:" + item.bucket, "source:" + FeedRanker.sourceKey(item))
+        keys.forEachIndexed { index, name ->
+            val strength = if (index == 0) delta else delta * 0.6f
+            prefs.put(name, (prefs.optDouble(name, 0.0) + strength).coerceIn(-1.5, 1.5))
+        }
+        storage.edit().putString(key, prefs.toString()).apply()
+    }
+
     fun saveTaste(next: Taste) {
         taste = next
         storage.edit().putFloat("taste_tech", next.tech)
@@ -129,8 +164,13 @@ class FeedRepository(context: Context) {
             // A straight published_at query filled every page with RedGIFs before other
             // providers could be fetched, even when those providers had fresh clips.
             val mixedAdultVideos = nsfw && kind == "video"
-            val endpoint = Uri.parse(BuildConfig.SUPABASE_URL +
-                (if (mixedAdultVideos) "/rest/v1/rpc/get_mixed_nsfw_video_page" else "/rest/v1/items"))
+            val mixedSafe = !nsfw
+            val path = when {
+                mixedAdultVideos -> "/rest/v1/rpc/get_mixed_nsfw_video_page"
+                mixedSafe -> "/rest/v1/rpc/get_mixed_safe_feed_page"
+                else -> "/rest/v1/items"
+            }
+            val endpoint = Uri.parse(BuildConfig.SUPABASE_URL + path)
                 .buildUpon()
                 .appendQueryParameter(
                     "select",
@@ -138,13 +178,13 @@ class FeedRepository(context: Context) {
                     "media_url,media_kind,poster_url,excerpt,body,quality_score,visual_score,engagement_score"
                 )
                 .apply {
-                    if (mixedAdultVideos) {
+                    if (mixedSafe || mixedAdultVideos) {
+                        if (mixedSafe) appendQueryParameter("p_kind", kind)
                         appendQueryParameter("p_limit", limit.toString())
                         appendQueryParameter("p_offset", offset.toString())
                     } else {
                         appendQueryParameter("is_nsfw", "eq." + nsfw)
                         appendQueryParameter("kind", "eq." + kind)
-                        // A newly ingested archive item is not recent content.
                         appendQueryParameter("published_at", "gte." + cutoff.toString())
                         appendQueryParameter("order", "published_at.desc")
                         appendQueryParameter("limit", limit.toString())
@@ -152,7 +192,7 @@ class FeedRepository(context: Context) {
                     }
                 }
                 .build()
-            val cacheKey = "cache_published_v4_" + nsfw + "_" + kind
+            val cacheKey = "cache_published_v5_" + nsfw + "_" + kind
             var fetchedOnline = false
             val body = try {
                 val conn = URL(endpoint.toString()).openConnection() as HttpURLConnection
