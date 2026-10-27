@@ -68,7 +68,7 @@ class FeedRankerTest {
         assertTrue(FeedFilter.ALL.accepts(item("v", "video")))
         assertTrue(FeedFilter.ARTICLES.accepts(item("a", "article")))
         assertFalse(FeedFilter.ARTICLES.accepts(item("v", "video")))
-        assertEquals(listOf("For you", "Videos", "Headlines"),
+        assertEquals(listOf("Your Mix", "Watch", "Stories"),
             FeedFilter.entries.map { it.title })
     }
 
@@ -85,11 +85,11 @@ class FeedRankerTest {
     }
     @Test fun socialFreshnessIsExplicitlyBounded() {
         val now = Instant.parse("2026-10-24T00:00:00Z")
-        val recent = item("recent", "social").copy(ingestedAt = "2026-10-23T00:00:00Z")
-        val stale = item("stale", "social").copy(ingestedAt = "2026-09-30T00:00:00Z")
+        val recent = item("recent", "social").copy(publishedAt = "2026-10-23T00:00:00Z")
+        val stale = item("stale", "social").copy(publishedAt = "2026-09-30T00:00:00Z")
         assertTrue(FeedRanker.isFreshSocial(recent, now))
         assertFalse(FeedRanker.isFreshSocial(stale, now))
-        assertFalse(FeedRanker.isFreshSocial(stale.copy(ingestedAt = "not-a-date"), now))
+        assertFalse(FeedRanker.isFreshSocial(stale.copy(publishedAt = "not-a-date"), now))
     }
 
     @Test fun alternatePublishersWhenPossible() {
@@ -133,5 +133,42 @@ class FeedRankerTest {
         assertEquals(10, ranked.size)
         assertTrue(ranked.take(5).any { it.id == "bluesky" })
         assertTrue(ranked.take(5).any { it.id == "mastodon" })
+    }
+
+    @Test fun sourceAndTopicMixIsVaried() {
+        val input = listOf(
+            item("a1","article","software-depth").copy(permalink="https://one.test/a1"),
+            item("a2","article","software-depth").copy(permalink="https://one.test/a2"),
+            item("b1","article","science").copy(permalink="https://two.test/b1"),
+            item("a3","article","software-depth").copy(permalink="https://one.test/a3"),
+            item("c1","article","entertainment").copy(permalink="https://three.test/c1")
+        )
+        val result = FeedRanker.diversifySources(input)
+        assertEquals(5, result.distinctBy { it.id }.size)
+        assertEquals(listOf("a1","b1","c1"), result.take(3).map { it.id })
+    }
+
+    @Test fun latestSelectionRewardsActualPublicationDate() {
+        val older = item("old","article").copy(publishedAt="2026-10-10T00:00:00Z", ingestedAt="2026-10-27T00:00:00Z")
+        val newer = item("new","article").copy(publishedAt="2026-10-27T00:00:00Z", ingestedAt="2026-10-20T00:00:00Z")
+        val ranked = FeedRanker.rank(listOf(older,newer), Taste(), FeedFilter.ARTICLES, FeedMode.LATEST)
+        assertEquals("new",ranked.first().id)
+    }
+
+    @Test fun feedbackPrioritisesMatchingTopicAndDomain() {
+        val alpha = item("alpha","article","science").copy(permalink="https://alpha.test/a")
+        val beta = item("beta","article","entertainment").copy(permalink="https://beta.test/b")
+        val preferences = mapOf("topic:science" to 1.5f, "source:alpha.test" to 1.5f)
+        val ranked = FeedRanker.rank(listOf(beta,alpha),Taste(),FeedFilter.ARTICLES, FeedMode.EXPLORE,preferences)
+        assertEquals("alpha",ranked.first().id)
+    }
+
+    @Test fun freshCommunityCanAppearInTheMixButNotStoriesOrWatch() {
+        val article = item("article","article")
+        val social = item("social","social").copy(publishedAt=Instant.now().toString())
+        val combined = FeedRanker.rank(listOf(article,social),Taste(),FeedFilter.ALL)
+        assertTrue(combined.any { it.id=="social" })
+        assertEquals(listOf("article"),FeedRanker.rank(listOf(article,social),Taste(),FeedFilter.ARTICLES).map { it.id })
+        assertFalse(FeedFilter.VIDEOS.accepts(social))
     }
 }
