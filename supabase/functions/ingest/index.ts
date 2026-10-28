@@ -64,15 +64,23 @@ async function persist(
 ): Promise<number> {
   if (drafts.length === 0) return 0;
 
+  // Upstream RSS sometimes repeats the same external_id inside one response.
+  // De-dupe before upsert so a single conflicting row cannot poison a batch.
+  const unique = Array.from(
+    new Map(drafts.filter(d => d.external_id && d.permalink)
+      .map(d => [d.external_id, d])).values(),
+  );
+
   // Skip embedding work for items we already have.
-  const { data: existing } = await db
+  const { data: existing, error: lookupError } = await db
     .from("items")
     .select("external_id")
     .eq("source_id", source.id)
-    .in("external_id", drafts.map((d) => d.external_id));
+    .in("external_id", unique.map((d) => d.external_id));
 
+  if (lookupError) throw new Error("existing item lookup: " + lookupError.message);
   const known = new Set((existing ?? []).map((r: { external_id: string }) => r.external_id));
-  const fresh = drafts.filter((d) => !known.has(d.external_id));
+  const fresh = unique.filter((d) => !known.has(d.external_id));
   if (fresh.length === 0) return 0;
 
   const rows = [];
@@ -102,12 +110,31 @@ async function persist(
     });
   }
 
-  const { error } = await db
-    .from("items")
-    .upsert(rows, { onConflict: "source_id,external_id", ignoreDuplicates: true });
-
-  if (error) throw new Error(`upsert failed: ${error.message}`);
-  return rows.length;
+  // PostgREST can return a 409 for one bad/duplicate row despite ON
+  // CONFLICT handling (another unique key or trigger can reject it).
+  // Retry per-row only when a batch fails, preserving healthy articles.
+  let written = 0;
+  let firstError: string | null = null;
+  for (let i = 0; i < rows.length; i += 12) {
+    const batch = rows.slice(i, i + 12);
+    const { error } = await db.from("items").upsert(batch, {
+      onConflict: "source_id,external_id", ignoreDuplicates: true,
+    });
+    if (!error) { written += batch.length; continue; }
+    firstError ??= error.message;
+    for (const row of batch) {
+      const { error: singleError } = await db.from("items").upsert(row, {
+        onConflict: "source_id,external_id", ignoreDuplicates: true,
+      });
+      if (singleError) {
+        console.warn("[ingest] rejected item", source.label, row.external_id, singleError.message);
+      } else {
+        written++;
+      }
+    }
+  }
+  if (written === 0 && firstError) throw new Error("all upserts failed: " + firstError);
+  return written;
 }
 
 Deno.serve(async (req: Request) => {
