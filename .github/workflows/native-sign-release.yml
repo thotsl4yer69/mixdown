@@ -1,4 +1,4 @@
-name: Prepare privately signed Mixdown 2.2 APK
+name: Prepare privately signed Mixdown APK
 
 # Release signing is deliberate and never happens for pull requests.
 # The original stable signing identity must be preserved in Actions secrets.
@@ -86,16 +86,18 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/mixdown-signature.txt"
           unzip -t "$APK" >/dev/null
           mkdir -p native-android/release-candidate
-          cp "$APK" native-android/release-candidate/mixdown-2.2.0.apk
+          VERSION="$(sed -n 's/.*versionName = "\\([^"]*\\)".*/\\1/p' native-android/app/build.gradle.kts | head -n1)"
+          [[ "$VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || { echo "::error::Invalid release version"; exit 1; }
+          cp "$APK" "native-android/release-candidate/mixdown-$VERSION.apk"
           cp "$RUNNER_TEMP/mixdown-signature.txt" native-android/release-candidate/signature.txt
-          (cd native-android/release-candidate && sha256sum mixdown-2.2.0.apk > SHA256SUMS.txt)
+          (cd native-android/release-candidate && sha256sum "mixdown-$VERSION.apk" > SHA256SUMS.txt)
           printf '%s\n' "${GITHUB_SHA}" > native-android/release-candidate/workflow-commit.txt
           printf '%s\n' "${{ inputs.reviewed_sha }}" > native-android/release-candidate/source-commit.txt
 
       - name: Upload signed private candidate (not publicly published)
         uses: actions/upload-artifact@v4
         with:
-          name: mixdown-2.2.0-release-signed
+          name: mixdown-release-signed
           path: native-android/release-candidate/
           if-no-files-found: error
           retention-days: 30
