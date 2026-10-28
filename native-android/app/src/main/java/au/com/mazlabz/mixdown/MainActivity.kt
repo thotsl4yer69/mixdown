@@ -354,7 +354,12 @@ private fun MixdownScreen(store: MixdownStore) {
     DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> player.pause()
+                Lifecycle.Event.ON_STOP -> {
+                    player.pause()
+                    // Returning from another app must never unexpectedly
+                    // expose the last adult clip in the foreground.
+                    if (store.nsfw) store.updateNsfw(false)
+                }
                 Lifecycle.Event.ON_START -> {
                     if (player.mediaItemCount > 0 && reader == null && !settingsOpen && !savedOpen) player.play()
                 }
