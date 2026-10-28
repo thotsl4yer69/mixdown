@@ -28,8 +28,8 @@ as $$
         '(^|[^[:alpha:]])(nsfw|xxx|porn|pornography|nude|nudity|naked|topless|boob|boobs|nipple|nipples|tit|tits|onlyfans|fetish|erotic|hentai|sex|sexy|sexual|orgasm|masturbation|striptease|adult.only)([^[:alpha:]]|$)'
       )
       and (i.kind='article' or (
-        coalesce(i.permalink,'') !~* '^https?://([a-z0-9-]+\\.)*(redgifs\\.com|pornhub\\.com|xvideos\\.com|xhamster\\.com|spankbang\\.com|erome\\.com|onlyfans\\.com|fansly\\.com|rule34\\.xxx|chaturbate\\.com)([/:?#]|$)'
-        and coalesce(i.media_url,'') !~* '^https?://([a-z0-9-]+\\.)*(redgifs\\.com|pornhub\\.com|xvideos\\.com|xhamster\\.com|spankbang\\.com|erome\\.com|onlyfans\\.com|fansly\\.com|rule34\\.xxx|chaturbate\\.com)([/:?#]|$)'
+        coalesce(i.permalink,'') !~* '^https?://([a-z0-9-]+\.)*(redgifs\.com|pornhub\.com|xvideos\.com|xhamster\.com|spankbang\.com|erome\.com|onlyfans\.com|fansly\.com|rule34\.xxx|chaturbate\.com)([/:?#]|$)'
+        and coalesce(i.media_url,'') !~* '^https?://([a-z0-9-]+\.)*(redgifs\.com|pornhub\.com|xvideos\.com|xhamster\.com|spankbang\.com|erome\.com|onlyfans\.com|fansly\.com|rule34\.xxx|chaturbate\.com)([/:?#]|$)'
       ))
   )
   select i.* from ranked r join public.items i on i.id=r.id
