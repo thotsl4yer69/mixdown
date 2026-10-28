@@ -163,7 +163,7 @@ function excerptOf(blocks, chars = 320) {
  * Never replace a missing/invalid publication date with ingestion time.
  * RFC 2822 (RSS) and ISO 8601 (Atom/NewsAPI) both contain a four-digit year.
  */
-function sourcePublishedAt(value, now = new Date() {
+function sourcePublishedAt(value, now = new Date()) {
   if (typeof value !== "string" || !value.trim()) return null;
   const raw = value.trim();
   if (!/(?:^|\D)\d{4}(?:\D|$)/.test(raw)) return null;
