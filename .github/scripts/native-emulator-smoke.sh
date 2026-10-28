@@ -4,7 +4,7 @@
 set -euo pipefail
 
 OUTPUT="native-android/smoke-output"
-PACKAGE="au.com.mazlabz.mixdown.beta23"
+PACKAGE="au.com.mazlabz.mixdown.beta24"
 mkdir -p "$OUTPUT"
 
 capture_diagnostics() {
@@ -89,6 +89,18 @@ if grep -Fq 'Nothing to scroll yet' "$OUTPUT/window.xml"; then
 fi
 if ! grep -Fq 'text="Watch"' "$OUTPUT/window.xml" || ! grep -Fq 'text="Stories"' "$OUTPUT/window.xml"; then
   echo "::error::Expected Your Mix / Watch / Stories navigation is missing"
+  exit 1
+fi
+if ! grep -Fq 'text="DISCOVER"' "$OUTPUT/window.xml"; then
+  echo "::error::The app must always cold-launch into its regular discovery feed"
+  exit 1
+fi
+if grep -Fq 'text="18+ FEED"' "$OUTPUT/window.xml"; then
+  echo "::error::Adult content was visible on the opening screen"
+  exit 1
+fi
+if ! grep -Fq 'content-desc="Open 18+ adult feed"' "$OUTPUT/window.xml"; then
+  echo "::error::The separate adult tab is missing"
   exit 1
 fi
 if grep -Fq 'text="Social"' "$OUTPUT/window.xml"; then
