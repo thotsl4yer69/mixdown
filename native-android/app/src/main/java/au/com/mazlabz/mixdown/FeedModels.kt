@@ -60,6 +60,28 @@ data class Taste(
     }
 }
 
+/**
+ * A source can mislabel a video or community post as general-audience content.
+ * Keep obvious adult-tagged posts out of Your Mix even if upstream is_nsfw=false.
+ * News articles are still allowed to discuss adult topics editorially.
+ * This is defence in depth, not a substitute for upstream media moderation.
+ */
+object FeedSafety {
+    private val adultCue = Regex(
+        """(?i)(?:^|[^a-z])(?:nsfw|xxx|porn(?:ography)?|nude|nudity|naked|topless|""" +
+            """boobs?|nipples?|tits?|onlyfans|fetish|erotic|hentai|sex(?:y|ual)?|""" +
+            """masturbat(?:ion|e|ing)|orgasm|striptease|adult[-_ ]?only)(?:$|[^a-z])"""
+    )
+
+    fun allows(item: FeedItem, adultLane: Boolean): Boolean {
+        if (item.isNsfw != adultLane) return false
+        if (adultLane || item.kind == "article") return true
+        return !adultCue.containsMatchIn(
+            listOf(item.title, item.excerpt, item.bucket).joinToString(" ")
+        )
+    }
+}
+
 /** Strip embedded RSS/Atom markup before rendering any metadata. */
 object FeedText {
     fun plain(input: String): String {
