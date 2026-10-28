@@ -25,8 +25,8 @@ android {
         applicationId = "au.com.mazlabz.mixdown"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20004
-        versionName = "2.4.0"
+        versionCode = 20005
+        versionName = "2.5.0"
         buildConfigField("String", "SUPABASE_URL", quoted(apiUrl))
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", quoted(publishableKey))
     }
@@ -52,10 +52,10 @@ android {
     buildTypes {
         debug {
             // CI debug keystores are ephemeral; install the new user-test build
-            // beside 2.1 rather than forcing an uninstall and losing local saves.
-            applicationIdSuffix = ".beta24"
+            // beside earlier installations rather than forcing an uninstall and losing local saves.
+            applicationIdSuffix = ".beta25"
             versionNameSuffix = "-beta"
-            resValue("string", "mixdown_app_name", "Mixdown 2.4 Beta")
+            resValue("string", "mixdown_app_name", "Mixdown 2.5 Beta")
         }
         release {
             isMinifyEnabled = false

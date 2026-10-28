@@ -326,7 +326,7 @@ private fun MixdownScreen(store: MixdownStore) {
                 }.build()
             player.setMediaItem(media)
             player.prepare()
-            player.playWhenReady = true
+            player.playWhenReady = reader == null && !settingsOpen && !savedOpen && !adultGateOpen
         }
     }
 
@@ -361,7 +361,7 @@ private fun MixdownScreen(store: MixdownStore) {
                     if (store.nsfw) store.updateNsfw(false)
                 }
                 Lifecycle.Event.ON_START -> {
-                    if (player.mediaItemCount > 0 && reader == null && !settingsOpen && !savedOpen) player.play()
+                    if (player.mediaItemCount > 0 && reader == null && !settingsOpen && !savedOpen && !adultGateOpen) player.play()
                 }
                 else -> Unit
             }
@@ -370,8 +370,8 @@ private fun MixdownScreen(store: MixdownStore) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(reader, settingsOpen, savedOpen) {
-        if (reader != null || settingsOpen || savedOpen) player.pause()
+    LaunchedEffect(reader, settingsOpen, savedOpen, adultGateOpen) {
+        if (reader != null || settingsOpen || savedOpen || adultGateOpen) player.pause()
         else if (active?.playable == true) player.play()
     }
 
@@ -496,7 +496,11 @@ private fun MixdownScreen(store: MixdownStore) {
                         .clip(RoundedCornerShape(24.dp))
                         .background(if (selected) Accent else Panel)
                         .clickable {
-                            if (store.nsfw) store.updateNsfw(false)
+                            if (store.nsfw) {
+                                player.pause()
+                                player.clearMediaItems()
+                                store.updateNsfw(false)
+                            }
                             store.select(option)
                         }
                         .padding(vertical = 12.dp),
@@ -512,7 +516,12 @@ private fun MixdownScreen(store: MixdownStore) {
                     .clip(RoundedCornerShape(24.dp))
                     .background(if (store.nsfw) Accent else Panel)
                     .semantics { contentDescription = "Open 18+ adult feed" }
-                    .clickable { if (!store.nsfw) adultGateOpen = true }
+                    .clickable {
+                        if (!store.nsfw) {
+                            player.pause()
+                            adultGateOpen = true
+                        }
+                    }
                     .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -558,6 +567,8 @@ private fun MixdownScreen(store: MixdownStore) {
             confirmButton = {
                 TextButton(onClick = {
                     adultGateOpen = false
+                    player.pause()
+                    player.clearMediaItems()
                     store.updateNsfw(true)
                 }) { Text("ENTER 18+", color = Accent, fontWeight = FontWeight.Bold) }
             },

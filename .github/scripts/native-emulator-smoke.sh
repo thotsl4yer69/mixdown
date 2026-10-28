@@ -4,7 +4,7 @@
 set -euo pipefail
 
 OUTPUT="native-android/smoke-output"
-PACKAGE="au.com.mazlabz.mixdown.beta24"
+PACKAGE="au.com.mazlabz.mixdown.beta25"
 mkdir -p "$OUTPUT"
 
 capture_diagnostics() {

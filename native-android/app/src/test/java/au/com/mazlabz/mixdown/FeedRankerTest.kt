@@ -34,6 +34,41 @@ class FeedRankerTest {
         assertTrue(FeedSafety.allows(news, adultLane = false))
     }
 
+    @Test fun latestIsChronologicalAcrossArticlesVideosAndCommunityPosts() {
+        val video = item("v", "video").copy(publishedAt = "2026-10-24T09:00:00Z")
+        val story = item("a", "article").copy(publishedAt = "2026-10-27T12:00:00Z")
+        val social = item("s", "social").copy(publishedAt = "2026-10-28T00:00:00Z")
+        val ranked = FeedRanker.rank(
+            listOf(video, story, social), Taste(), FeedFilter.ALL, FeedMode.LATEST
+        )
+        assertEquals(listOf("s", "a", "v"), ranked.map { it.id })
+    }
+
+    @Test fun latestDoesNotReorderByTopicOrVideoBoost() {
+        val older = item("popular", "video", "entertainment")
+            .copy(publishedAt = "2026-10-21T08:00:00Z", quality = 1.0, engagement = 1.0)
+        val newer = item("new", "article", "news-analysis")
+            .copy(publishedAt = "2026-10-28T01:00:00Z", quality = 0.1)
+        assertEquals(
+            "new", FeedRanker.rank(
+                listOf(older, newer), Taste(), FeedFilter.ALL, FeedMode.LATEST
+            ).first().id
+        )
+    }
+
+    @Test fun regularLaneRejectsLinksToAdultHostsDespiteSafeMetadata() {
+        val clip = item("masked", "video").copy(
+            title = "A short clip", permalink = "https://www.redgifs.com/watch/something"
+        )
+        val post = item("linked", "social").copy(
+            title = "See my page", permalink = "https://subdomain.onlyfans.com/a"
+        )
+        assertFalse(FeedSafety.allows(clip, false))
+        assertFalse(FeedSafety.allows(post, false))
+        assertFalse(FeedSafety.allows(clip.copy(permalink = "https://good.com/watch", mediaUrl = "https://cdn.erome.com/clip.mp4"), false))
+        assertTrue(FeedSafety.allows(clip.copy(permalink = "https://www.abc.net.au/news/2026", mediaUrl = "https://safe.video.test/file.mp4"), false))
+    }
+
     @Test fun boundedBackfillSkipsSeenOnlyPagesWithoutInfiniteRequests() {
         assertTrue(FeedBackfill.shouldContinue(0, 2, 0))
         assertTrue(FeedBackfill.shouldContinue(2, 1, 7))

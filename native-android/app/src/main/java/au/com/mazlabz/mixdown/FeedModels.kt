@@ -73,9 +73,23 @@ object FeedSafety {
             """masturbat(?:ion|e|ing)|orgasm|striptease|adult[-_ ]?only)(?:$|[^a-z])"""
     )
 
+    // Ordinary social feeds sometimes link straight to explicit hosts while
+    // retaining an innocuous caption. Guard URLs as well as metadata.
+    private val adultHosts = setOf(
+        "redgifs.com", "pornhub.com", "xvideos.com", "xhamster.com",
+        "spankbang.com", "erome.com", "onlyfans.com", "fansly.com",
+        "rule34.xxx", "chaturbate.com"
+    )
+
+    private fun adultHost(url: String): Boolean = runCatching {
+        val host = java.net.URI(url).host?.lowercase()?.trimEnd('.') ?: return@runCatching false
+        adultHosts.any { host == it || host.endsWith("." + it) }
+    }.getOrDefault(false)
+
     fun allows(item: FeedItem, adultLane: Boolean): Boolean {
         if (item.isNsfw != adultLane) return false
         if (adultLane || item.kind == "article") return true
+        if (adultHost(item.permalink) || adultHost(item.mediaUrl)) return false
         return !adultCue.containsMatchIn(
             listOf(item.title, item.excerpt, item.bucket).joinToString(" ")
         )
@@ -112,25 +126,27 @@ object FeedRanker {
         feedback: Map<String, Float> = emptyMap()
     ): List<FeedItem> {
         val distinct = items.distinctBy { it.id }.filter { filter.accepts(it) }
-        val sorted = if (mode == FeedMode.LATEST) {
-            distinct.sortedWith(compareByDescending<FeedItem> { it.publishedAt }.thenBy { it.id })
-        } else {
-            distinct.sortedWith(
-                compareByDescending<FeedItem> { score(it, taste, mode, feedback) }
-                    .thenByDescending { it.publishedAt }
-                    .thenBy { it.id }
+        // Latest is one strictly chronological feed across ALL media types.
+        // Interleaving videos/articles here silently breaks date ordering.
+        if (mode == FeedMode.LATEST) {
+            return distinct.sortedWith(
+                compareByDescending<FeedItem> { it.publishedAt }.thenBy { it.id }
             )
         }
-        if (filter != FeedFilter.ALL) return if (mode == FeedMode.LATEST) sorted else diversifySources(sorted)
+        val sorted = distinct.sortedWith(
+            compareByDescending<FeedItem> { score(it, taste, mode, feedback) }
+                .thenByDescending { it.publishedAt }
+                .thenBy { it.id }
+        )
+        if (filter != FeedFilter.ALL) return diversifySources(sorted)
 
-        fun order(pool: List<FeedItem>): List<FeedItem> =
-            if (mode == FeedMode.LATEST) pool else diversifySources(pool)
+        fun order(pool: List<FeedItem>): List<FeedItem> = diversifySources(pool)
         val videos = ArrayDeque(order(sorted.filter { it.playable }))
         val articles = ArrayDeque(order(sorted.filter { it.kind == "article" }))
         val social = ArrayDeque(order(sorted.filter { it.kind == "social" && isFreshSocial(it) }))
         // One community post every few cards, but never an endless social archive.
         val cycle = when (mode) {
-            FeedMode.LATEST -> listOf(videos, articles, social, videos, articles)
+            FeedMode.LATEST -> error("LATEST is handled before interleaving")
             FeedMode.EXPLORE -> listOf(articles, videos, social, articles, videos)
             else -> listOf(videos, articles, videos, social, articles)
         }
