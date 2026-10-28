@@ -1,0 +1,25 @@
+name: Verify shorts publication provenance
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/ingest-shorts/**"
+      - "tests/ingest-shorts-publication.test.ts"
+      - ".github/workflows/ingest-shorts-publication.yml"
+  push:
+    paths:
+      - "supabase/functions/ingest-shorts/**"
+      - "tests/ingest-shorts-publication.test.ts"
+      - ".github/workflows/ingest-shorts-publication.yml"
+permissions:
+  contents: read
+jobs:
+  shorts-date-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Prove social publisher dates and write-boundary rejection
+        run: node --experimental-strip-types --test tests/ingest-shorts-publication.test.ts
