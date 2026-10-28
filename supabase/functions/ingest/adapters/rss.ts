@@ -1,5 +1,6 @@
 import type { Adapter, DraftItem, SourceRow, MediaKind } from "../../_shared/types.ts";
 import { htmlToBlocks, excerptOf, decodeEntities } from "../lib/extract.ts";
+import { sourcePublishedAt } from "../lib/published.ts";
 
 const UA = "mixdown/1.0 (personal feed reader)";
 
@@ -61,11 +62,10 @@ export const rssAdapter: Adapter = {
         tag(entry, "summary") ??
         "";
 
-      const published =
-        tag(entry, "pubDate") ??
-        tag(entry, "published") ??
-        tag(entry, "updated") ??
-        new Date().toISOString();
+      // "updated" is an edit timestamp, not evidence of original publication.
+      // Undated entries cannot be labelled as today's news.
+      const publishedAt = sourcePublishedAt(tag(entry, "pubDate") ?? tag(entry, "published"));
+      if (!publishedAt) continue;
 
       const enclosureUrl =
         attr(entry, "enclosure", "url") ??
@@ -77,11 +77,6 @@ export const rssAdapter: Adapter = {
         attr(entry, "media:thumbnail", "url") ??
         /<img[^>]+src=["']([^"']+)["']/i.exec(rawBody)?.[1] ??
         null;
-
-      const parsedDate = new Date(published);
-      const publishedAt = Number.isNaN(parsedDate.getTime())
-        ? new Date().toISOString()
-        : parsedDate.toISOString();
 
       if (mediaKind && enclosureUrl) {
         const durAttr = attr(entry, "media:content", "duration");

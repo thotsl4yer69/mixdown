@@ -157,6 +157,30 @@ function excerptOf(blocks, chars = 320) {
   return `${cut.slice(0, cut.lastIndexOf(" "))}\u2026`;
 }
 
+// Mixdown original-publication validator (mirrors ingest/lib/published.ts).
+/**
+ * A feed timestamp is a claim about when the publisher released the item.
+ * Never replace a missing/invalid publication date with ingestion time.
+ * RFC 2822 (RSS) and ISO 8601 (Atom/NewsAPI) both contain a four-digit year.
+ */
+function sourcePublishedAt(value, now = new Date()) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const raw = value.trim();
+  if (!/(?:^|\D)\d{4}(?:\D|$)/.test(raw)) return null;
+  // Date.parse normalizes impossible ISO calendar dates (e.g. February 30). Reject them.
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:T|$)/);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (month < 1 || month > 12 || day < 1 || day > lastDay) return null;
+  }
+  const milliseconds = Date.parse(raw);
+  if (!Number.isFinite(milliseconds) || milliseconds > now.getTime() + 86_400_000) return null;
+  return new Date(milliseconds).toISOString();
+}
+
 // supabase/functions/ingest/adapters/rss.ts
 var UA = "mixdown/1.0 (personal feed reader)";
 function tag(xml, name) {
@@ -191,12 +215,12 @@ var rssAdapter = {
       const link = tag(entry, "link") || attr(entry, "link", "href") || tag(entry, "guid") || "";
       if (!/^https?:/i.test(link)) continue;
       const rawBody = tag(entry, "content:encoded") ?? tag(entry, "content") ?? tag(entry, "description") ?? tag(entry, "summary") ?? "";
-      const published = tag(entry, "pubDate") ?? tag(entry, "published") ?? tag(entry, "updated") ?? (/* @__PURE__ */ new Date()).toISOString();
+      const publishedAt = sourcePublishedAt(tag(entry, "pubDate") ?? tag(entry, "published"));
+      if (!publishedAt) continue;
       const enclosureUrl = attr(entry, "enclosure", "url") ?? attr(entry, "media:content", "url") ?? null;
       const mediaKind = enclosureUrl ? mediaKindFor(enclosureUrl) : null;
       const poster = attr(entry, "media:thumbnail", "url") ?? /<img[^>]+src=["']([^"']+)["']/i.exec(rawBody)?.[1] ?? null;
-      const parsedDate = new Date(published);
-      const publishedAt = Number.isNaN(parsedDate.getTime()) ? (/* @__PURE__ */ new Date()).toISOString() : parsedDate.toISOString();
+      // A valid publisher date is required; edit time and poll time are not publication time.
       if (mediaKind && enclosureUrl) {
         const durAttr = attr(entry, "media:content", "duration");
         items.push({
@@ -542,7 +566,8 @@ var newsApiAdapter = {
       const url = cleanedText(article.url);
       const title = cleanedText(article.title);
       if (!url || !title) return null;
-      const publishedAt = new Date(article.publishedAt ?? Date.now());
+      const publishedAt = sourcePublishedAt(article.publishedAt);
+      if (!publishedAt) return null;
       const excerpt = cleanedText(article.description) ?? cleanedText(article.content);
       return {
         external_id: url,
@@ -550,7 +575,7 @@ var newsApiAdapter = {
         title,
         author: cleanedText(article.author) ?? cleanedText(article.source?.name) ?? null,
         permalink: url,
-        published_at: Number.isNaN(publishedAt.getTime()) ? (/* @__PURE__ */ new Date()).toISOString() : publishedAt.toISOString(),
+        published_at: publishedAt,
         is_nsfw: source.is_nsfw,
         body: bodyFor(article),
         excerpt,
@@ -1176,6 +1201,8 @@ var ADAPTERS = {
     fetch(source) {
       const url = String(source.config.url ?? "");
       if (!url) throw new Error("direct source missing config.url");
+      const publishedAt = sourcePublishedAt(source.config.published_at);
+      if (!publishedAt) return Promise.resolve([]);
       return Promise.resolve([
         {
           external_id: url,
@@ -1183,7 +1210,7 @@ var ADAPTERS = {
           kind: "video",
           title: String(source.config.title ?? source.label),
           permalink: url,
-          published_at: (/* @__PURE__ */ new Date()).toISOString(),
+          published_at: publishedAt,
           is_nsfw: source.is_nsfw,
           media_url: url,
           media_kind: source.config.media_kind ?? "mp4",

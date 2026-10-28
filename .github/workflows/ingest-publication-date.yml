@@ -1,0 +1,26 @@
+name: Verify ingestion publication dates
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/ingest/**"
+      - "tests/ingest-publication-date.test.ts"
+      - "tests/ingest-bundled-publication.test.ts"
+      - ".github/workflows/ingest-publication-date.yml"
+  push:
+    paths:
+      - "supabase/functions/ingest/**"
+      - "tests/ingest-publication-date.test.ts"
+      - ".github/workflows/ingest-publication-date.yml"
+permissions:
+  contents: read
+jobs:
+  publication-date-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify RSS, NewsAPI and direct dates without network or credentials
+        run: node --experimental-strip-types --test tests/ingest-publication-date.test.ts tests/ingest-bundled-publication.test.ts
