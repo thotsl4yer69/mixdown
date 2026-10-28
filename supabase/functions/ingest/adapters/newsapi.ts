@@ -1,4 +1,5 @@
 import type { Adapter, Block, DraftItem, SourceRow } from "../../_shared/types.ts";
+import { sourcePublishedAt } from "../lib/published.ts";
 
 const API = "https://newsapi.org/v2";
 
@@ -94,7 +95,8 @@ export const newsApiAdapter: Adapter = {
         const title = cleanedText(article.title);
         if (!url || !title) return null;
 
-        const publishedAt = new Date(article.publishedAt ?? Date.now());
+        const publishedAt = sourcePublishedAt(article.publishedAt);
+        if (!publishedAt) return null;
         const excerpt = cleanedText(article.description) ?? cleanedText(article.content);
 
         return {
@@ -103,9 +105,7 @@ export const newsApiAdapter: Adapter = {
           title,
           author: cleanedText(article.author) ?? cleanedText(article.source?.name) ?? null,
           permalink: url,
-          published_at: Number.isNaN(publishedAt.getTime())
-            ? new Date().toISOString()
-            : publishedAt.toISOString(),
+          published_at: publishedAt,
           is_nsfw: source.is_nsfw,
           body: bodyFor(article),
           excerpt,
