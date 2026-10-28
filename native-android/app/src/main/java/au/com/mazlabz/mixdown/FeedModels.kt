@@ -133,15 +133,11 @@ object FeedRanker {
                 compareByDescending<FeedItem> { it.publishedAt }.thenBy { it.id }
             )
         }
-        val sorted = if (mode == FeedMode.LATEST) {
-            distinct.sortedWith(compareByDescending<FeedItem> { it.publishedAt }.thenBy { it.id })
-        } else {
-            distinct.sortedWith(
-                compareByDescending<FeedItem> { score(it, taste, mode, feedback) }
-                    .thenByDescending { it.publishedAt }
-                    .thenBy { it.id }
-            )
-        }
+        val sorted = distinct.sortedWith(
+            compareByDescending<FeedItem> { score(it, taste, mode, feedback) }
+                .thenByDescending { it.publishedAt }
+                .thenBy { it.id }
+        )
         if (filter != FeedFilter.ALL) return diversifySources(sorted)
 
         fun order(pool: List<FeedItem>): List<FeedItem> = diversifySources(pool)
