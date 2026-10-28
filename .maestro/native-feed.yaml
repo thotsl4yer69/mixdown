@@ -1,4 +1,4 @@
-appId: au.com.mazlabz.mixdown.beta23
+appId: au.com.mazlabz.mixdown.beta24
 name: Native mixed feed, bookmark persistence and stories
 tags:
   - smoke
@@ -11,6 +11,9 @@ tags:
 - assertVisible: "MIX"
 - assertVisible: "DOWN"
 - assertVisible: "Stories"
+- assertVisible: "DISCOVER"
+- assertVisible: "Open 18+ adult feed"
+- assertNotVisible: "18+ FEED"
 - assertNotVisible: "Nothing to scroll yet"
 - assertNotVisible: "Social"
 - tapOn: "SAVE"
@@ -27,6 +30,23 @@ tags:
 - assertVisible: "SAVED / MIXDOWN"
 - assertNotVisible: "Nothing saved yet"
 - tapOn: "Close saved library"
+# Adult mode must require intentional navigation and confirmation.
+- tapOn: "Open 18+ adult feed"
+- assertVisible: "ADULT CONTENT · 18+"
+- tapOn: "STAY IN YOUR MIX"
+- assertVisible: "DISCOVER"
+- tapOn: "Open 18+ adult feed"
+- tapOn: "ENTER 18+"
+- extendedWaitUntil:
+    visible: "18+ FEED"
+    timeout: 30000
+# Even when the app was last used in the adult section, relaunch is safe.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "DISCOVER"
+    timeout: 30000
+- assertNotVisible: "18+ FEED"
 - tapOn: "Stories"
 - extendedWaitUntil:
     visible: "READ STORY"

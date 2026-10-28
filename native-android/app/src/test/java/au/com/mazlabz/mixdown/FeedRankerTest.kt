@@ -12,6 +12,28 @@ class FeedRankerTest {
         "", "", emptyList(), "", "2026-10-20T01:00:00Z", 0.7, 0.6, 0.8, false
     )
 
+
+    @Test fun regularLaneRejectsAdultHashtagsEvenIfProviderMislabelsTheClip() {
+        val clip = item("adult-tag", "video").copy(
+            title = "Just needed to feel them #tit #boob #nipple #bra",
+            isNsfw = false
+        )
+        assertFalse(FeedSafety.allows(clip, adultLane = false))
+        assertFalse(FeedSafety.allows(clip.copy(title = "OnlyFans exclusive"), adultLane = false))
+    }
+
+    @Test fun safeAndAdultLanesNeverCrossContaminate() {
+        val safeClip = item("safe", "video").copy(title = "Melbourne music festival")
+        val explicitClip = item("adult", "video").copy(title = "Adult media", isNsfw = true)
+        assertTrue(FeedSafety.allows(safeClip, adultLane = false))
+        assertFalse(FeedSafety.allows(explicitClip, adultLane = false))
+        assertTrue(FeedSafety.allows(explicitClip, adultLane = true))
+        assertFalse(FeedSafety.allows(safeClip, adultLane = true))
+        // Editorial news can discuss adult issues without being treated as porn.
+        val news = item("news", "article").copy(title = "New sexual assault laws in Victoria")
+        assertTrue(FeedSafety.allows(news, adultLane = false))
+    }
+
     @Test fun boundedBackfillSkipsSeenOnlyPagesWithoutInfiniteRequests() {
         assertTrue(FeedBackfill.shouldContinue(0, 2, 0))
         assertTrue(FeedBackfill.shouldContinue(2, 1, 7))

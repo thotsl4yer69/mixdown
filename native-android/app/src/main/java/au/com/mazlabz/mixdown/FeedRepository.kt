@@ -122,7 +122,7 @@ class FeedRepository(context: Context) {
         val saved = JSONArray(storage.getString("bookmarks_" + nsfw, "[]") ?: "[]")
         (0 until saved.length()).mapNotNull { index ->
             saved.optJSONObject(index)?.toItem()
-        }.filter { it.id.isNotBlank() && it.isNsfw == nsfw }
+        }.filter { it.id.isNotBlank() && FeedSafety.allows(it, nsfw) }
     }.getOrDefault(emptyList())
 
     fun toggleSaved(item: FeedItem): List<FeedItem> {
@@ -163,12 +163,13 @@ class FeedRepository(context: Context) {
 
     suspend fun fetch(kind: String, offset: Int, limit: Int = 45): FeedBatch =
         withContext(Dispatchers.IO) {
+            val requestedNsfw = nsfw
             val cutoff = Instant.now().minus(30, ChronoUnit.DAYS)
             // NSFW videos use a server-side round-robin page across actual publishers.
             // A straight published_at query filled every page with RedGIFs before other
             // providers could be fetched, even when those providers had fresh clips.
-            val mixedAdultVideos = nsfw && kind == "video"
-            val mixedSafe = !nsfw
+            val mixedAdultVideos = requestedNsfw && kind == "video"
+            val mixedSafe = !requestedNsfw
             val path = when {
                 mixedAdultVideos -> "/rest/v1/rpc/get_mixed_nsfw_video_page"
                 mixedSafe -> "/rest/v1/rpc/get_mixed_safe_feed_page"
@@ -187,7 +188,7 @@ class FeedRepository(context: Context) {
                         appendQueryParameter("p_limit", limit.toString())
                         appendQueryParameter("p_offset", offset.toString())
                     } else {
-                        appendQueryParameter("is_nsfw", "eq." + nsfw)
+                        appendQueryParameter("is_nsfw", "eq." + requestedNsfw)
                         appendQueryParameter("kind", "eq." + kind)
                         appendQueryParameter("published_at", "gte." + cutoff.toString())
                         appendQueryParameter("order", "published_at.desc")
@@ -196,7 +197,7 @@ class FeedRepository(context: Context) {
                     }
                 }
                 .build()
-            val cacheKey = "cache_published_v5_" + nsfw + "_" + kind
+            val cacheKey = "cache_published_v6_" + requestedNsfw + "_" + kind
             var fetchedOnline = false
             val body = try {
                 val conn = URL(endpoint.toString()).openConnection() as HttpURLConnection
@@ -230,7 +231,7 @@ class FeedRepository(context: Context) {
             val items = (0 until parsed.length()).mapNotNull { index ->
                 parsed.optJSONObject(index)?.toItem()
             }.filter { item ->
-                item.isNsfw == nsfw &&
+                FeedSafety.allows(item, requestedNsfw) &&
                     (kind != "video" || item.playable) &&
                     runCatching {
                         val published = Instant.parse(item.publishedAt)

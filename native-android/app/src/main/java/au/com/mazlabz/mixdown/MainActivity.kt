@@ -49,7 +49,10 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -82,9 +85,16 @@ class MainActivity : ComponentActivity() {
 }
 
 private class MixdownStore(private val repo: FeedRepository) {
+    // The home screen is ALWAYS the general feed, even after the last session
+    // ended inside the 18+ tab. Old persisted adult-mode flags are migrated.
+    init { repo.setNsfw(false) }
+
     val items: SnapshotStateList<FeedItem> = mutableStateListOf()
     private val all = mutableListOf<FeedItem>()
     private val offsets = mutableMapOf("video" to 0, "article" to 0, "social" to 0)
+    // Serialize network requests across lane switches so a previous adult
+    // response can never replace the regular feed after switching back.
+    private val loadMutex = Mutex()
 
     var loading by mutableStateOf(false)
         private set
@@ -100,7 +110,7 @@ private class MixdownStore(private val repo: FeedRepository) {
         private set
     var muted by mutableStateOf(repo.muted)
         private set
-    var nsfw by mutableStateOf(repo.nsfw)
+    var nsfw by mutableStateOf(false)
         private set
     var exhausted by mutableStateOf(false)
         private set
@@ -110,8 +120,9 @@ private class MixdownStore(private val repo: FeedRepository) {
     suspend fun reload() = load(reset = true)
     suspend fun more() = load(reset = false)
 
-    private suspend fun load(reset: Boolean) {
-        if (loading || (!reset && exhausted)) return
+    private suspend fun load(reset: Boolean) = loadMutex.withLock {
+        if (!reset && exhausted) return@withLock
+        val requestedNsfw = nsfw
         loading = true
         error = ""
         try {
@@ -153,8 +164,12 @@ private class MixdownStore(private val repo: FeedRepository) {
                     }
                 }
             }
-            val newItems = added.filter { it.id !in existing && it.id !in seen }
-                .distinctBy { it.id }
+            // A lane switch can cancel the request while rows are still in
+            // flight; never commit a response for a lane that is no longer active.
+            if (requestedNsfw != nsfw) return@withLock
+            val newItems = added.filter {
+                it.isNsfw == requestedNsfw && it.id !in existing && it.id !in seen
+            }.distinctBy { it.id }
             if (reset) {
                 if (successfulBatches > 0 && newItems.isNotEmpty()) {
                     // Only switch the visible list after a usable replacement
@@ -191,8 +206,10 @@ private class MixdownStore(private val repo: FeedRepository) {
                 // Keep readable content on screen when one third-party source fails.
                 error = "Some feed categories could not update. Available content is shown."
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (failure: Exception) {
-            error = failure.message ?: "The feed couldn't load."
+            if (requestedNsfw == nsfw) error = failure.message ?: "The feed couldn't load."
         } finally {
             loading = false
         }
@@ -235,8 +252,11 @@ private class MixdownStore(private val repo: FeedRepository) {
     }
 
     fun updateNsfw(next: Boolean) {
-        nsfw = next
+        if (nsfw == next) return
+        // Set repository pool first: seen history, bookmarks, recommendations
+        // and the network query are isolated per pool.
         repo.setNsfw(next)
+        nsfw = next
         // Adult sources currently contain videos; never retain Stories and render an empty pool.
         filter = FeedFilter.ALL
         saved = repo.savedItems()
@@ -267,19 +287,18 @@ private fun MixdownScreen(store: MixdownStore) {
     val pagerState = rememberPagerState(pageCount = { store.items.size })
     val player = remember(context) { ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ONE } }
     var settingsOpen by remember { mutableStateOf(false) }
+    var adultGateOpen by remember { mutableStateOf(false) }
     var savedOpen by remember { mutableStateOf(false) }
     var reader by remember { mutableStateOf<FeedItem?>(null) }
     var playbackError by remember { mutableStateOf("") }
     var videoAspect by remember { mutableFloatStateOf(1f) }
     val active = store.items.getOrNull(pagerState.settledPage)
 
-    LaunchedEffect(Unit) { store.reload() }
+    // Initial load and every switch between the general and adult pools.
+    // A cancelled old request cannot leave the new lane waiting for a refresh.
+    LaunchedEffect(store.nsfw) { store.reload() }
 
-    LaunchedEffect(store.nsfw) {
-        if (store.items.isEmpty() && !store.loading) store.reload()
-    }
-
-    LaunchedEffect(store.filter) {
+    LaunchedEffect(store.filter, store.nsfw) {
         if (pagerState.currentPage != 0) pagerState.scrollToPage(0)
     }
 
@@ -335,7 +354,12 @@ private fun MixdownScreen(store: MixdownStore) {
     DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> player.pause()
+                Lifecycle.Event.ON_STOP -> {
+                    player.pause()
+                    // Returning from another app must never unexpectedly
+                    // expose the last adult clip in the foreground.
+                    if (store.nsfw) store.updateNsfw(false)
+                }
                 Lifecycle.Event.ON_START -> {
                     if (player.mediaItemCount > 0 && reader == null && !settingsOpen && !savedOpen) player.play()
                 }
@@ -422,7 +446,7 @@ private fun MixdownScreen(store: MixdownStore) {
                 Spacer(Modifier.weight(1f))
                 Box(Modifier.size(8.dp).background(Mint, CircleShape))
                 Spacer(Modifier.width(8.dp))
-                Text(if (store.nsfw) "ADULT MODE" else "DISCOVER", fontSize = 10.sp,
+                Text(if (store.nsfw) "18+ FEED" else "DISCOVER", fontSize = 10.sp,
                     color = if (store.nsfw) Accent else Mint, letterSpacing = 1.sp)
                 Spacer(Modifier.width(14.dp))
                 Text("★", modifier = Modifier.semantics { contentDescription = "Open saved library" }
@@ -457,38 +481,44 @@ private fun MixdownScreen(store: MixdownStore) {
             }
         }
 
-        if (store.nsfw) {
+        // The adult lane is a separate fourth tab, never the default screen.
+        // Keep all four tabs visible so leaving the 18+ lane is one tap.
+        Row(
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
+                .navigationBarsPadding().padding(start = 14.dp, end = 14.dp, bottom = 18.dp, top = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FeedFilter.entries.forEach { option ->
+                val selected = !store.nsfw && store.filter == option
+                Box(
+                    modifier = Modifier.weight(1f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(if (selected) Accent else Panel)
+                        .clickable {
+                            if (store.nsfw) store.updateNsfw(false)
+                            store.select(option)
+                        }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(option.title, fontSize = 12.sp,
+                        color = if (selected) Ink else TextDim,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                }
+            }
             Box(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
-                    .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 24.dp),
+                modifier = Modifier.weight(0.75f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(if (store.nsfw) Accent else Panel)
+                    .semantics { contentDescription = "Open 18+ adult feed" }
+                    .clickable { if (!store.nsfw) adultGateOpen = true }
+                    .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("ADULT FEED  •  SWIPE TO EXPLORE", color = TextDim,
-                    fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            }
-        } else {
-            Row(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF6080A0E), Ink)))
-                    .navigationBarsPadding().padding(start = 14.dp, end = 14.dp, bottom = 18.dp, top = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FeedFilter.entries.forEach { option ->
-                    val selected = store.filter == option
-                    Box(
-                        modifier = Modifier.weight(1f)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(if (selected) Accent else Panel)
-                            .clickable { store.select(option) }
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(option.title, fontSize = 12.sp,
-                            color = if (selected) Ink else TextDim,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-                    }
-                }
+                Text("18+", fontSize = 12.sp,
+                    color = if (store.nsfw) Ink else TextDim,
+                    fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -513,11 +543,28 @@ private fun MixdownScreen(store: MixdownStore) {
                 store.resetHistory()
                 settingsOpen = false
                 scope.launch { store.reload() }
+            }
+        )
+    }
+    if (adultGateOpen) {
+        AlertDialog(
+            onDismissRequest = { adultGateOpen = false },
+            containerColor = Panel,
+            title = { Text("ADULT CONTENT · 18+", color = TextBright, fontWeight = FontWeight.Bold) },
+            text = {
+                Text("This tab contains explicit adult videos and is intended only for adults. It is separate from Your Mix, and Mixdown always opens on the regular feed.",
+                    color = TextDim, lineHeight = 21.sp)
             },
-            onPoolChange = { changed ->
-                store.updateNsfw(changed)
-                settingsOpen = false
-                scope.launch { store.reload() }
+            confirmButton = {
+                TextButton(onClick = {
+                    adultGateOpen = false
+                    store.updateNsfw(true)
+                }) { Text("ENTER 18+", color = Accent, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { adultGateOpen = false }) {
+                    Text("STAY IN YOUR MIX", color = TextBright)
+                }
             }
         )
     }
@@ -788,8 +835,7 @@ private fun RoundAction(symbol: String, label: String, onClick: () -> Unit) {
 private fun SettingsDialog(
     store: MixdownStore,
     onDismiss: () -> Unit,
-    onReset: () -> Unit,
-    onPoolChange: (Boolean) -> Unit
+    onReset: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -835,12 +881,11 @@ private fun SettingsDialog(
                 Switch(checked = store.muted, onCheckedChange = store::updateMuted)
             }
             Spacer(Modifier.height(24.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Separate adult-content feed", color = TextBright, fontWeight = FontWeight.Bold)
-                    Text("Off by default. Adult and general feeds never mix.", color = TextDim, fontSize = 12.sp)
-                }
-                Switch(checked = store.nsfw, onCheckedChange = onPoolChange)
+            Column {
+                Text("ADULT CONTENT IS SEPARATE", color = TextBright, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text("Use the 18+ tab to enter the adult feed. It is never mixed into Your Mix and never becomes the home screen.",
+                    color = TextDim, fontSize = 12.sp, lineHeight = 18.sp)
             }
             Spacer(Modifier.height(32.dp))
             OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) {
