@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { datedShortDraft, shortPublishedAt } from "./published.ts";
 
 const clamp = (n: number) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
 const cleanText = (value: unknown) => String(value ?? "")
@@ -146,7 +147,8 @@ async function fetchBluesky(source: any): Promise<any[]> {
   for (const entry of json.feed ?? []) {
     const post = entry.post;
     if (!post?.uri || !post?.record) continue;
-    if (source.config.max_age_days && Date.parse(post.record.createdAt ?? post.indexedAt ?? '') < Date.now() - Number(source.config.max_age_days)*86400000) continue;
+    const publishedAt = shortPublishedAt(post.record.createdAt, source.config.max_age_days);
+    if (!publishedAt) continue;
     const labels = [...(post.labels ?? []), ...(post.author?.labels ?? [])].map((l: any) => String(l.val ?? "").toLowerCase());
     if (!source.is_nsfw && labels.some((v: string) => /porn|sexual|nudity|graphic-media/.test(v))) continue;
     if (source.config.adult_labels_only && !labels.some((v: string) => /^(porn|sexual|nudity)$/.test(v))) continue;
@@ -166,7 +168,7 @@ async function fetchBluesky(source: any): Promise<any[]> {
       title,
       author: post.author?.displayName || `@${handle}`,
       permalink,
-      published_at: post.record.createdAt ?? post.indexedAt ?? new Date().toISOString(),
+      published_at: publishedAt,
       is_nsfw: source.is_nsfw,
       media_url: media.media_url ?? null,
       media_kind: media.media_kind ?? null,
@@ -199,7 +201,8 @@ async function fetchMastodon(source: any): Promise<any[]> {
     const status = raw.reblog ?? raw;
     if (!status?.id || !status?.url) continue;
     if (source.config.language && !String(status.language ?? "").startsWith(String(source.config.language))) continue;
-    if (source.config.max_age_days && Date.parse(status.created_at ?? '') < Date.now() - Number(source.config.max_age_days)*86400000) continue;
+    const publishedAt = shortPublishedAt(status.created_at, source.config.max_age_days);
+    if (!publishedAt) continue;
     if (!source.is_nsfw && status.sensitive) continue;
     if (source.config.sensitive_only && !status.sensitive) continue;
     const attachments = status.media_attachments ?? [];
@@ -218,7 +221,7 @@ async function fetchMastodon(source: any): Promise<any[]> {
       title: (text || `Post by ${status.account?.display_name || status.account?.acct}`).slice(0, 220),
       author: status.account?.display_name || `@${status.account?.acct}`,
       permalink: status.url,
-      published_at: status.created_at ?? new Date().toISOString(),
+      published_at: publishedAt,
       is_nsfw: source.is_nsfw,
       media_url: mediaUrl,
       media_kind: isVideo ? (mediaKind(mediaUrl) ?? "mp4") : null,
@@ -252,6 +255,8 @@ async function fetchLemmy(source: any): Promise<any[]> {
   for (const view of json.posts ?? []) {
     const post = view.post;
     if (!post?.id || !post?.name) continue;
+    const publishedAt = shortPublishedAt(post.published, source.config.max_age_days);
+    if (!publishedAt) continue;
     if (!source.is_nsfw && post.nsfw) continue;
     const url = String(post.url ?? "");
     const youtubeId = parseYouTubeId(url);
@@ -280,7 +285,7 @@ async function fetchLemmy(source: any): Promise<any[]> {
       title: cleanText(post.name).slice(0, 220),
       author: view.creator?.display_name || `@${view.creator?.name ?? "lemmy"}`,
       permalink,
-      published_at: post.published ?? new Date().toISOString(),
+      published_at: publishedAt,
       is_nsfw: source.is_nsfw,
       media_url,
       media_kind,
@@ -326,6 +331,8 @@ async function fetchPeerTube(source: any): Promise<any[]> {
       if (result.status !== "fulfilled") continue;
       const v = result.value;
       if (!source.is_nsfw && v.nsfw) continue;
+      const publishedAt = shortPublishedAt(v.publishedAt, source.config.max_age_days);
+      if (!publishedAt) continue;
       const duration = Number(v.duration ?? 0);
       if (duration < 3 || duration > maxDuration) continue;
       const playlist = (v.streamingPlaylists ?? []).find((p: any) => p.playlistUrl)?.playlistUrl ?? null;
@@ -340,7 +347,7 @@ async function fetchPeerTube(source: any): Promise<any[]> {
         title: cleanText(v.name).slice(0, 220),
         author: v.channel?.displayName ?? v.account?.displayName ?? null,
         permalink: `https://${instance}/w/${id}`,
-        published_at: v.publishedAt ?? new Date().toISOString(),
+        published_at: publishedAt,
         is_nsfw: source.is_nsfw,
         media_url: playable,
         media_kind: playlist ? "hls" : "mp4",
@@ -368,8 +375,10 @@ async function persist(db: any, source: any, drafts: any[]): Promise<number> {
   if (!drafts.length) return 0;
   const rows: any[] = [];
   const seen = new Set<string>();
-  for (const item of drafts) {
-    if (!item.external_id || !item.title || !item.permalink) continue;
+  for (const draft of drafts) {
+    // Revalidate at the database boundary, even if an adapter regresses.
+    const item = datedShortDraft(draft, source.config?.max_age_days);
+    if (!item || !item.external_id || !item.title || !item.permalink) continue;
     if (item.kind === "video" && (!item.media_url || !item.media_kind)) continue;
     const key = await contentKey(item);
     if (seen.has(key)) continue;
@@ -383,7 +392,7 @@ async function persist(db: any, source: any, drafts: any[]): Promise<number> {
       title: String(item.title).slice(0, 300),
       author: item.author ?? null,
       permalink: item.permalink,
-      published_at: item.published_at ?? new Date().toISOString(),
+      published_at: item.published_at,
       bucket: source.default_bucket,
       is_nsfw: Boolean(item.is_nsfw),
       media_url: item.media_url ?? null,
