@@ -748,7 +748,7 @@ async function fetchGif(id) {
   });
   if (response.status === 401) {
     cachedToken2 = null;
-    return fetchGif(id);
+    return null; // Avoid unbounded recursion on repeated authentication failure.
   }
   if (!response.ok) return null;
   const json = await response.json();
@@ -788,26 +788,41 @@ async function resolveRedGifs(url) {
 var redGifsAdapter = {
   async fetch(source) {
     const terms = Array.isArray(source.config.search_terms) ? source.config.search_terms.map(String).filter(Boolean) : ["amateur"];
-    const token = await redGifsToken();
+    let token = await redGifsToken();
     const limit = Math.min(source.max_items_per_poll, 40);
     const output = [];
+    let successfulSearches = 0;
+    let lastError = "no search terms";
     for (const term of terms.slice(0, 3)) {
       const endpoint = new URL("https://api.redgifs.com/v2/gifs/search");
       endpoint.searchParams.set("search_text", term);
       endpoint.searchParams.set("count", String(limit));
       endpoint.searchParams.set("page", "1");
       endpoint.searchParams.set("order", "trending");
-      const response = await fetch(endpoint, {
+      let response = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         signal: AbortSignal.timeout(2e4)
       });
-      if (!response.ok) continue;
+      if (response.status === 401 || response.status === 403) {
+        cachedToken2 = null;
+        token = await redGifsToken();
+        response = await fetch(endpoint, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(2e4)
+        });
+      }
+      if (!response.ok) {
+        lastError = `search HTTP ${response.status} for ${term}`;
+        continue;
+      }
       const json = await response.json();
+      successfulSearches++;
       for (const gif of json.gifs ?? []) {
         const resolved = draftFromGif(gif);
         if (resolved) output.push({ ...resolved, is_nsfw: source.is_nsfw });
       }
     }
+    if (successfulSearches === 0) throw new Error("redgifs: " + lastError);
     return output.slice(0, limit);
   }
 };
@@ -1122,12 +1137,14 @@ function normalizedIdentity(item) {
     url.hash = "";
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
     const pathname = url.pathname.replace(/\/$/, "").toLowerCase();
-    const important = new URLSearchParams();
-    for (const key of ["v", "viewkey", "id"]) {
-      const value = url.searchParams.get(key);
-      if (value) important.set(key, value.toLowerCase());
-    }
-    const query = important.toString();
+    // Strip *only* known tracking keys. For many publishers ?p=123,
+    // ?article=... or other opaque parameters ARE the article identity.
+    // Sort retained pairs so harmless parameter reordering deduplicates.
+    const trackingKey = /^(utm_.+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|igshid|ref_src|ref_url|yclid)$/i;
+    const identifying = Array.from(url.searchParams.entries())
+      .filter(([key, value]) => value !== "" && !trackingKey.test(key))
+      .sort(([ka, va], [kb, vb]) => ka.localeCompare(kb) || va.localeCompare(vb));
+    const query = new URLSearchParams(identifying).toString();
     return `${host}${pathname}${query ? `?${query}` : ""}`;
   } catch {
     return `${item.external_id}:${item.permalink}`.toLowerCase();
