@@ -17,7 +17,18 @@ capture_diagnostics() {
   adb shell dumpsys activity activities > "$OUTPUT/activities.txt" 2>/dev/null || true
   adb shell dumpsys connectivity > "$OUTPUT/connectivity.txt" 2>/dev/null || true
 }
-trap capture_diagnostics EXIT
+finish() {
+  local result=$?
+  trap - EXIT
+  if [[ -n "${RECORD_PID:-}" ]]; then
+    adb shell pkill -INT screenrecord >/dev/null 2>&1 || true
+    wait "$RECORD_PID" || true
+    adb pull /sdcard/mixdown-demo.mp4 "$OUTPUT/mixdown-demo.mp4" >/dev/null 2>&1 || true
+  fi
+  capture_diagnostics
+  exit "$result"
+}
+trap finish EXIT
 
 adb install -r native-android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -W -n "$PACKAGE/au.com.mazlabz.mixdown.MainActivity"
@@ -144,6 +155,10 @@ PY
   sleep 2
 }
 
+adb shell screencap -p /sdcard/discover.png
+adb pull /sdcard/discover.png "$OUTPUT/01-discover.png" >/dev/null
+adb shell screenrecord --time-limit 120 --bit-rate 2000000 /sdcard/mixdown-demo.mp4 > "$OUTPUT/recording.txt" 2>&1 &
+RECORD_PID=$!
 tap_accessible "SAVE"
 tap_accessible "Open saved library"
 adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
@@ -156,6 +171,8 @@ if grep -Fq 'Nothing saved yet' "$OUTPUT/window.xml"; then
   echo "::error::Saved library did not retain the bookmarked item"
   exit 1
 fi
+adb shell screencap -p /sdcard/saved.png
+adb pull /sdcard/saved.png "$OUTPUT/02-saved-library.png" >/dev/null
 tap_accessible "Close saved library"
 
 # The saved item must survive a full process restart, not just Compose state.
@@ -204,7 +221,22 @@ if ! grep -Fq 'READ STORY' "$OUTPUT/window.xml"; then
   echo "::error::Stories tab does not show a readable story"
   exit 1
 fi
+adb shell screencap -p /sdcard/stories.png
+adb pull /sdcard/stories.png "$OUTPUT/03-stories.png" >/dev/null
 capture_diagnostics
+python3 - <<'PYCODE'
+import json, os, subprocess
+from pathlib import Path
+Path('native-android/smoke-output/evidence.json').write_text(json.dumps({
+    'source_commit': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
+    'run_id': os.environ.get('GITHUB_RUN_ID'),
+    'device': 'Android API 35 emulator',
+    'checks': ['live discovery feed', 'safe cold launch', 'full publication date', 'save item', 'saved library', 'bookmark survives process restart', 'readable Stories card'],
+    'status': 'passed',
+    'limits': ['Debug beta signing', 'No physical-device performance or audio acceptance', 'No purchase or paid download tested', 'Demo depicts live content available during this run']
+}, indent=2)+'\n')
+PYCODE
 
 echo "Mixdown installed-app smoke passed: live feed, bookmark, restart persistence and accessible controls."
+
 

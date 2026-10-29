@@ -62,17 +62,34 @@ jobs:
           })().catch(e=>{ console.error(e);process.exit(1) });
           NODE
       - name: Unit tests and installable native APK
-        run: gradle --project-dir native-android :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+        run: gradle --project-dir native-android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+      - name: Preserve unit and lint evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixdown-native-test-reports
+          path: |
+            native-android/app/build/test-results/
+            native-android/app/build/reports/
+          if-no-files-found: error
+          retention-days: 30
       - name: Check APK and digest
         run: |
           test -s native-android/app/build/outputs/apk/debug/app-debug.apk
           unzip -t native-android/app/build/outputs/apk/debug/app-debug.apk | tail -n 1
           sha256sum native-android/app/build/outputs/apk/debug/app-debug.apk > native-android/app/build/outputs/apk/debug/mixdown-native.SHA256SUMS.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs native-android/app/build/outputs/apk/debug/app-debug.apk > native-android/app/build/outputs/apk/debug/signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging native-android/app/build/outputs/apk/debug/app-debug.apk > native-android/app/build/outputs/apk/debug/package.txt
+          git rev-parse HEAD > native-android/app/build/outputs/apk/debug/source-commit.txt
       - uses: actions/upload-artifact@v4
         with:
           name: mixdown-native-android-apk
           path: |
             native-android/app/build/outputs/apk/debug/app-debug.apk
             native-android/app/build/outputs/apk/debug/mixdown-native.SHA256SUMS.txt
+            native-android/app/build/outputs/apk/debug/signature.txt
+            native-android/app/build/outputs/apk/debug/package.txt
+            native-android/app/build/outputs/apk/debug/source-commit.txt
           if-no-files-found: error
           retention-days: 90
+
