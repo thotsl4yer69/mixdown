@@ -16,7 +16,14 @@ The included publishable Supabase API key is **public client configuration**, ne
 
 ## Build
 On a JDK 17/Android SDK 35 machine with Gradle 8.10.2:
-  gradle :app:testDebugUnitTest :app:assembleDebug
+  gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 APK: app/build/outputs/apk/debug/app-debug.apk
 
 See the **Mixdown Native Android** GitHub Actions workflow for reproducible builds. Build success does not replace physical-device video/audio testing.
+
+
+## Beta identity and evidence
+
+Current source version: 2.5.0 (20005). Debug builds install as `au.com.mazlabz.mixdown.beta25`, labelled **Mixdown 2.5 Beta**. They are test builds with CI debug signing, not the stable production identity. A new CI key may conflict with an already installed beta; do not delete local saves just to resolve it without choosing to do so.
+
+The native build artifact contains the APK, SHA-256, signer report, package metadata and source SHA. The installed-app smoke artifact contains real discovery/saved-library/Stories screenshots, a short screen recording and a machine-readable evidence manifest. These describe the exact CI run and its live content, not guaranteed content availability later.
